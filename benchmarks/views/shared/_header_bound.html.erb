@@ -1,0 +1,8 @@
+<header class="site-header">
+  <a class="brand" href="/">ViewBind Bench</a>
+  <%= bind_render "shared/nav_bound", current_path: current_path %>
+  <div class="user">
+    <%= bind_render "shared/avatar", name: user %>
+    <%= bind_render "shared/button", label: "Sign out", style: "ghost" %>
+  </div>
+</header>

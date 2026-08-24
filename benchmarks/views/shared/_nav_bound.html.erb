@@ -1,0 +1,3 @@
+<nav><ul class="nav">
+  <% NAV_LINKS.each do |label, href| %><%= bind_render "shared/nav_item", label: label, href: href, current: href == current_path %><% end %>
+</ul></nav>

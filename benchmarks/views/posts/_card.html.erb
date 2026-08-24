@@ -1,0 +1,7 @@
+<article class="card">
+  <h3 class="card-title"><a href="/posts/<%= post.id %>"><%= post.title %></a></h3>
+  <%= render "posts/author", post: post %>
+  <p class="card-body"><%= post.excerpt %></p>
+  <%= render "posts/tags", post: post %>
+  <%= render "posts/actions", post: post %>
+</article>

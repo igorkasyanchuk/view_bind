@@ -127,6 +127,18 @@ class ViewBindTest < Minitest::Test
     assert_same before_buffer, v.output_buffer
   end
 
+  # Documented limitation, pinned so it cannot change unnoticed: these helpers append into
+  # the buffer they are handed, while `render` takes the partial's return value. A partial
+  # that reassigns @output_buffer without restoring it therefore renders to nothing here and
+  # to markup through `render`.
+  def test_a_partial_that_hijacks_the_output_buffer_renders_nothing
+    v = view
+    v.instance_eval { bind_render "fixtures/rude", item: "x" }
+    assert_equal "", squish(v.output_buffer)
+
+    assert_equal "<b>x</b>", squish(view.render(partial: "fixtures/rude", locals: { item: "x" }))
+  end
+
   def test_missing_partial_raises_missing_template
     v = view
     assert_raises(ActionView::MissingTemplate) { v.instance_eval { bind_render "fixtures/nope" } }

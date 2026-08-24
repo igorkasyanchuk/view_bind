@@ -199,6 +199,7 @@ goes wrong:
 | Missing partial still raises `MissingTemplate` | `test_missing_partial_raises_missing_template` |
 | `bind_capture` returns markup, `content_for` works | `test_bind_capture_works_with_content_for` |
 | A block raises instead of being dropped | `test_block_form_raises_instead_of_being_ignored` |
+| The output-buffer limitation stays as documented | `test_a_partial_that_hijacks_the_output_buffer_renders_nothing` |
 | The gem loads outside Rails | `test_loads_without_rails` |
 
 In development, templates are re-resolved on every call (guarded on
@@ -226,6 +227,11 @@ That is not a trick this gem plays: the partial is a normal compiled template, s
   tracker is already installed for that handler rather than replacing it.
 - No `render` instrumentation is emitted for bound partials, by design. Your APM will show
   fewer view events and per-partial timings for them disappear.
+- A partial that reassigns `@output_buffer` without restoring it loses its output. These
+  helpers write into the buffer they are given, whereas `render` builds its own buffer and
+  takes whatever the partial returns, so it survives that. `capture` and `with_output_buffer`
+  restore the buffer and are unaffected; only code that assigns the ivar and walks away is.
+  Inside `bind_render_each` such an item takes the rest of the collection with it.
 - The resolved-template cache is not evicted. It is keyed per call site, per lookup details, so
   it is bounded in practice — but passing a varying set of locals keys to the same partial grows
   it.

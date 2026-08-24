@@ -95,14 +95,27 @@ view_bind 0.1.0 — 200 posts, Rails 8.1.3.1, Ruby 3.4.5 +YJIT
 env=production  eager_load=true  cache_template_loading=true  reloading=false
 7 rounds x 20 full requests, interleaved, best round per case
 
-                                         ms    gc ms      objects   renders  queries   vs base
-  render everywhere (baseline)       15.082     1.55       81 647      2648        8     1.00x
-  bind_render in the view             5.990     0.45       28 020        48        8     2.91x
-  bind_render in the layout          15.046     1.40       80 738      2601        8     1.01x
-  bind_render in both                 6.047     0.55       27 105         1        8     3.01x
+                                         ms    gc ms      objects   renders  queries     obj x    time x
+  render everywhere (baseline)       13.591     1.40       81 647      2648        8     1.00x     1.00x
+  bind_render in the view             5.288     0.45       28 020        48        8     2.91x     2.57x
+  bind_render in the layout          13.866     1.40       80 739      2601        8     1.01x     0.98x
+  bind_render in both                 5.526     0.45       27 105         1        8     3.01x     2.46x
+```
 
-Five consecutive runs moved the millisecond column between 14.1 and 19.3 for the baseline, and
-never moved a single object count or ratio.
+**Allocations fall further than wall-clock.** 3.01x fewer objects, ~2.5x faster: the 8 queries
+and the ActiveRecord objects behind them cost the same on every route, so they dilute the view
+savings. Quote the time ratio when you talk about this gem.
+
+Five independent runs on an idle machine, one fresh process each:
+
+```
+case                            min ms   median    mean     max   spread    objects
+render everywhere (baseline)     13.87    13.97   13.96   14.07       1%     81 647
+bind_render in the view           5.31     5.60    5.54    5.64       6%     28 020
+bind_render in the layout        13.47    13.56   13.63   13.80       2%     80 739
+bind_render in both               5.08     5.41    5.36    5.47       8%     27 105
+
+per-run ratios:  view 2.46-2.65x (median 2.49x) · layout 1.01-1.04x · both 2.56-2.76x (median 2.56x)
 ```
 
 Read the object counts: they are exact and do not move with machine load, while milliseconds
@@ -126,11 +139,11 @@ template — 41 072 objects instead of 20 900. That is the correct trade, but do
 gem by what you see while clicking around `rails s`.
 
 **The layout is not where your time goes.** Converting only the layout is worth 1.01x.
-Converting the view, where a partial is called once per row, is worth 2.9x. Convert loops,
+Converting the view, where a partial is called once per row, is worth ~2.5x. Convert loops,
 not chrome.
 
 **And the database sets the ceiling.** Those 8 queries and the ActiveRecord objects behind them
-cost the same on every route, which is why adding them moved the win from 3.6x to 3.0x. On a
+cost the same on every route, which is why adding them moved the win from 3.6x to ~2.5x. On a
 page that renders 20 rows instead of 200, or one that spends 40 ms in the database, the number
 would be smaller still. Measure your own page before adopting anything here.
 

@@ -64,16 +64,20 @@ puts "env=#{Rails.env}  eager_load=#{Rails.application.config.eager_load}  " \
      "cache_template_loading=#{ActionView::Resolver.caching?}  " \
      "reloading=#{Rails.application.config.enable_reloading}"
 puts "#{R} rounds x #{N} full requests, interleaved, best round per case\n\n"
-printf("  %-30s %10s %8s %12s %9s %8s %9s\n", "", "ms", "gc ms", "objects", "renders", "queries", "vs base")
+printf("  %-30s %10s %8s %12s %9s %8s %9s %9s\n",
+       "", "ms", "gc ms", "objects", "renders", "queries", "obj x", "time x")
 CASES.each do |label, path|
   renders[:total] = queries[:total] = 0
   session.get(path)
   r = results[label]
-  printf("  %-30s %10.3f %8.2f %12s %9d %8d %8.2fx\n",
+  printf("  %-30s %10.3f %8.2f %12s %9d %8d %8.2fx %8.2fx\n",
          label, r[:ms], r[:gc], r[:objects].to_s.reverse.scan(/\d{1,3}/).join(" ").reverse,
-         renders[:total], queries[:total], baseline[:objects].to_f / r[:objects])
+         renders[:total], queries[:total],
+         baseline[:objects].to_f / r[:objects], baseline[:ms] / r[:ms])
 end
 
 puts "\n  #{Post.count} posts / #{Comment.count} comments in SQLite, #{POSTS_PER_PAGE} rendered per request."
 puts "  HTML is byte-identical across all four routes."
+puts "  obj x is the allocation ratio, time x the wall-clock ratio -- they differ because the"
+puts "  8 queries and their ActiveRecord objects cost the same on every route."
 puts "  Objects are exact; milliseconds move with machine load.\n\n"

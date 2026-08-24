@@ -1,6 +1,7 @@
 <header class="site-header">
   <a class="brand" href="/">ViewBind Bench</a>
   <%= render "shared/nav", current_path: current_path %>
+  <span class="totals"><%= @totals[:posts] %> posts · <%= @totals[:comments] %> comments</span>
   <div class="user">
     <%= render "shared/avatar", name: user %>
     <%= render "shared/button", label: "Sign out", style: "ghost" %>

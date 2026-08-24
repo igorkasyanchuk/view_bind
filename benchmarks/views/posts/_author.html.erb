@@ -1,4 +1,4 @@
 <div class="byline">
-  <%= render "shared/avatar", name: post.author %>
-  <span><%= post.author %> · <%= post.views %> views</span>
+  <%= render "shared/avatar", name: post.author.name %>
+  <span><%= post.author.name %> from <%= post.author.city %> · <%= post.views %> views</span>
 </div>

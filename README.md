@@ -81,9 +81,11 @@ string, so the block form of `render` is not supported either: passing a block r
 
 ## Benchmark
 
-A dummy app with a realistic tree — layout → header → nav → nav\_item, a 200-item card
-collection whose cards render an author block, a tag collection, an ownership block that reads
-instance variables, a nested badge and three buttons, plus a sidebar with widgets and a footer.
+A dummy app backed by SQLite — 2 000 posts, 6 000 comments, 10 authors — rendering a realistic
+tree: layout → header → nav → nav\_item, 200 cards per page whose cards render an author block,
+a tag collection, an ownership block that reads instance variables, a nested badge and three
+buttons, plus a sidebar built from four more queries (top categories, busiest authors, recent
+comments, totals) and a footer. **8 SQL queries per request**, the same on every route.
 Four routes, **byte-identical HTML**, different call styles.
 
 ```
@@ -93,11 +95,14 @@ view_bind 0.1.0 — 200 posts, Rails 8.1.3.1, Ruby 3.4.5 +YJIT
 env=production  eager_load=true  cache_template_loading=true  reloading=false
 7 rounds x 20 full requests, interleaved, best round per case
 
-                                         ms    gc ms      objects    renders    vs base
-  render everywhere (baseline)       14.814     1.70       74 527       2630      1.00x
-  bind_render in the view             4.131     0.55       20 900         30      3.57x
-  bind_render in the layout          14.120     1.70       73 931       2601      1.01x
-  bind_render in both                 3.847     0.55       20 297          1      3.67x
+                                         ms    gc ms      objects   renders  queries   vs base
+  render everywhere (baseline)       15.082     1.55       81 647      2648        8     1.00x
+  bind_render in the view             5.990     0.45       28 020        48        8     2.91x
+  bind_render in the layout          15.046     1.40       80 738      2601        8     1.01x
+  bind_render in both                 6.047     0.55       27 105         1        8     3.01x
+
+Five consecutive runs moved the millisecond column between 14.1 and 19.3 for the baseline, and
+never moved a single object count or ratio.
 ```
 
 Read the object counts: they are exact and do not move with machine load, while milliseconds
@@ -115,14 +120,19 @@ env=development  eager_load=false  cache_template_loading=false  reloading=true
   bind_render in both                 6.028     0.90       40 690          1      1.84x
 ```
 
-Half the win: 1.82x instead of 3.57x. In development the lookup cache is bypassed so that
+Half the win. In development the lookup cache is bypassed so that
 editing a partial takes effect without a restart, which means every call re-resolves the
 template — 41 072 objects instead of 20 900. That is the correct trade, but do not judge the
 gem by what you see while clicking around `rails s`.
 
-**The layout is not where your time goes.** Converting only the layout — header, nav, flashes,
-sidebar, footer, about 29 render calls — is worth 1.01x. Converting the view, where a partial
-is called once per row, is worth 3.5x. Convert loops, not chrome.
+**The layout is not where your time goes.** Converting only the layout is worth 1.01x.
+Converting the view, where a partial is called once per row, is worth 2.9x. Convert loops,
+not chrome.
+
+**And the database sets the ceiling.** Those 8 queries and the ActiveRecord objects behind them
+cost the same on every route, which is why adding them moved the win from 3.6x to 3.0x. On a
+page that renders 20 rows instead of 200, or one that spends 40 ms in the database, the number
+would be smaller still. Measure your own page before adopting anything here.
 
 ## What it does not change
 

@@ -1,0 +1,13 @@
+# The dummy app runs entirely in memory: the schema is defined and seeded in app.rb,
+# so a benchmark run never touches disk and always starts from the same rows.
+default: &default
+  adapter: sqlite3
+  database: ":memory:"
+  pool: 5
+
+development:
+  <<: *default
+production:
+  <<: *default
+test:
+  <<: *default

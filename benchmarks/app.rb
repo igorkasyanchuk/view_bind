@@ -8,6 +8,7 @@ RubyVM::YJIT.enable if defined?(RubyVM::YJIT) && ENV["YJIT"] != "0"
 
 require "rails"
 require "action_controller/railtie"
+require "active_record/railtie"
 require "logger"
 require_relative "../lib/view_bind"
 
@@ -17,16 +18,20 @@ WIDGETS      = [["Popular", %w[ruby rails erb views]],
                 ["Recent",  %w[perf caching sqlite]],
                 ["Authors", %w[ada linus grace]]].freeze
 
-Post = Struct.new(:id, :title, :author, :excerpt, :views, :tags)
+class Author < ActiveRecord::Base
+  has_many :posts
+end
 
-POSTS = (1..200).map do |i|
-  Post.new(i,
-           "Post number #{i}",
-           %w[Ada Linus Yukihiro Grace Rich][i % 5],
-           "Body text for post #{i}. " * 4,
-           i * 7,
-           %w[ruby rails perf views sqlite erb].sample(3))
-end.freeze
+class Post < ActiveRecord::Base
+  belongs_to :author
+  has_many :comments
+
+  def tags = tag_list.to_s.split(",")
+end
+
+class Comment < ActiveRecord::Base
+  belongs_to :post
+end
 
 class BenchApp < Rails::Application
   config.root = __dir__
@@ -42,6 +47,7 @@ class BenchApp < Rails::Application
   config.consider_all_requests_local = true
   config.action_view.cache_template_loading = benchmarking
   config.paths["app/views"] = [File.expand_path("views", __dir__)]
+  config.active_record.maintain_test_schema = false
   config.middleware.delete ActionDispatch::DebugExceptions if Rails.env.production?
 
   routes.append do
@@ -52,11 +58,14 @@ class BenchApp < Rails::Application
   end
 end
 
+POSTS_PER_PAGE = 200
+
 class PagesController < ActionController::Base
   before_action do
     @user = "Igor"
     @current_path = "/"  # fixed so every route renders byte-identical HTML
     @flashes = [[:notice, "Signed in"], [:warning, "Trial ends soon"]]
+    load_page_data
   end
 
   # render everywhere: the baseline
@@ -73,11 +82,78 @@ class PagesController < ActionController::Base
 
   private
 
+  # A page's worth of queries, the way a real index action accumulates them.
+  def load_page_data
+    @posts           = Post.includes(:author).order(id: :desc).limit(POSTS_PER_PAGE).to_a
+    @top_categories  = Post.group(:category).order(count_all: :desc).limit(5).count
+    @busiest_authors = Author.joins(:posts).group("authors.name").order(count_all: :desc).limit(5).count
+    @recent_comments = Comment.includes(:post).order(id: :desc).limit(8).to_a
+    @totals          = { posts: Post.count, comments: Comment.count }
+  end
+
   def default_render = nil
 end
 
-class PagesController
-  before_action { @posts = POSTS }
+Rails.application.initialize!
+
+# The schema and rows go in after boot: Rails opens its own connection from
+# config/database.yml, and every connection to ":memory:" is a database of its own.
+ActiveRecord::Base.logger = nil
+ActiveRecord::Migration.verbose = false
+
+ActiveRecord::Schema.define do
+  create_table :authors, force: true do |t|
+    t.string :name
+    t.string :city
+  end
+
+  create_table :posts, force: true do |t|
+    t.references :author
+    t.string :title
+    t.string :category
+    t.text :excerpt
+    t.integer :views
+    t.string :tag_list
+    t.timestamps
+  end
+
+  create_table :comments, force: true do |t|
+    t.references :post
+    t.string :body
+    t.string :author_name
+    t.timestamps
+  end
 end
 
-Rails.application.initialize!
+# Enough rows that the queries are doing real work, not so many that the benchmark
+# turns into a database benchmark.
+AUTHORS    = %w[Ada Linus Yukihiro Grace Rich Matz Aaron Eileen Xavier Jeremy].freeze
+CITIES     = %w[Kyiv Lviv Berlin Lisbon Tokyo].freeze
+CATEGORIES = %w[performance rails ruby databases frontend].freeze
+TAG_POOL   = %w[ruby rails perf views sqlite erb caching yjit].freeze
+
+author_ids = AUTHORS.each_with_index.map do |name, i|
+  Author.create!(name: name, city: CITIES[i % CITIES.size]).id
+end
+
+Post.insert_all(
+  (1..2_000).map do |i|
+    { author_id: author_ids[i % author_ids.size],
+      title: "Post number #{i}",
+      category: CATEGORIES[i % CATEGORIES.size],
+      excerpt: "Body text for post #{i}. " * 4,
+      views: i * 7 % 991,
+      tag_list: TAG_POOL.rotate(i).first(3).join(","),
+      created_at: Time.now, updated_at: Time.now }
+  end
+)
+
+Comment.insert_all(
+  (1..6_000).map do |i|
+    { post_id: (i % 2_000) + 1,
+      body: "Comment #{i} on the post, with a sentence of text.",
+      author_name: AUTHORS[i % AUTHORS.size],
+      created_at: Time.now, updated_at: Time.now }
+  end
+)
+

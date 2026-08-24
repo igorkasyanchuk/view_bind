@@ -1,3 +1,15 @@
 <aside class="sidebar">
   <% WIDGETS.each do |title, items| %><%= render "shared/widget", title: title, items: items %><% end %>
+  <section class="widget">
+    <h4>Top categories</h4>
+    <ul><% @top_categories.each do |category, total| %><%= render "shared/category_row", category: category, total: total %><% end %></ul>
+  </section>
+  <section class="widget">
+    <h4>Busiest authors</h4>
+    <ul><% @busiest_authors.each do |name, total| %><%= render "shared/author_row", name: name, total: total %><% end %></ul>
+  </section>
+  <section class="widget">
+    <h4>Recent comments</h4>
+    <ul><%= render partial: "shared/comment_row", collection: @recent_comments, as: :comment %></ul>
+  </section>
 </aside>

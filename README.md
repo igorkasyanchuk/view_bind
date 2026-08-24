@@ -25,8 +25,18 @@ lookup keyed by details and locals, an `ActiveSupport::Notifications` event, a p
 `OutputBuffer`, and a string copy out of it into the parent buffer.
 
 `bind_render` resolves the template once per call site per process and then calls its compiled
-method, writing straight into the current buffer. On a page with a few hundred partial calls
-that is most of the render time.
+method, writing straight into the current buffer: **1.4 µs and 6 objects per call** on a leaf
+partial. Three things keep it there:
+
+- a two-level cache (lookup details, then virtual path) whose hit allocates nothing, rather
+  than a single map keyed by a composite array that has to be built and hashed every call;
+- the map for the current lookup details is memoised on the view, so a request derives it
+  once instead of once per partial;
+- the compiled method is called directly, with the same `@current_template` / `@output_buffer`
+  bookkeeping `ActionView::Base#_run` does — from inside the helper, which is included in the
+  view class, so those are plain ivar assignments rather than `instance_variable_set`.
+
+Strict-locals partials go back through `Template#render`, which owns the argument checking.
 
 ## Install
 
@@ -98,14 +108,14 @@ env=production  eager_load=true  cache_template_loading=true  reloading=false
 counters: attached only for the inspection pass
 
                                          ms    gc ms      objects   renders  queries     obj x    time x
-  render everywhere (baseline)       11.380     1.20       68 342      2662       10     1.00x     1.00x
-  bind_render in the view             5.980     0.45       28 722        62       10     2.38x     1.90x
-  bind_render in the layout          11.050     1.20       67 474      2601       10     1.01x     1.03x
-  bind_render in both                 5.810     0.45       27 847         1       10     2.45x     1.95x
+  render everywhere (baseline)       11.680     1.25       68 342      2662       10     1.00x     1.00x
+  bind_render in the view             4.630     0.40       23 523        62       10     2.91x     2.49x
+  bind_render in the layout          11.580     1.25       67 353      2601       10     1.01x     1.02x
+  bind_render in both                 4.720     0.35       22 526         1       10     3.03x     2.50x
 ```
 
-Medians of five runs of five rounds. 2 662 render calls collapse to 1, 40 495 fewer objects
-per request, and the page comes back in about half the time.
+Medians of five runs of five rounds. 2 662 render calls collapse to 1, 45 816 fewer objects
+per request, and the page comes back in 40% of the time.
 
 ### The database decides how much of this you keep
 
@@ -113,11 +123,11 @@ Same code, same 10 queries, same HTML — only the backend changed:
 
 | backend | baseline | bind_render in both | speedup |
 | --- | ---: | ---: | ---: |
-| SQLite, file | 11.38 ms | 5.81 ms | **1.95x** |
-| PostgreSQL 17, localhost | 18.16 ms | 13.20 ms | **1.38x** |
+| SQLite, file | 11.68 ms | 4.72 ms | **2.50x** |
+| PostgreSQL 17, localhost | 18.41 ms | 11.72 ms | **1.57x** |
 
 Postgres adds a flat ~7 ms to every route, baseline and bound alike, so the same saved work is
-a smaller share of a bigger number. The allocation ratio barely moves (2.45x vs 2.42x), which
+a smaller share of a bigger number. The allocation ratio barely moves (3.03x vs 2.98x), which
 is why it is the more portable figure.
 
 ### If you run an APM
@@ -129,8 +139,8 @@ world:
 
 | | baseline | bind_render in both | speedup |
 | --- | ---: | ---: | ---: |
-| plain | 11.38 ms | 5.81 ms | 1.95x |
-| with view instrumentation | 14.29 ms | 5.83 ms | **2.44x** |
+| plain | 11.68 ms | 4.72 ms | 2.50x |
+| with view instrumentation | 14.29 ms | 4.74 ms | **3.02x** |
 
 The instrumented baseline is 2.9 ms and 14 334 objects heavier; the bound page is unchanged.
 The gem is worth more in an instrumented app than in a bare one.

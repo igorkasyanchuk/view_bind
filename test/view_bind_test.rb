@@ -80,6 +80,23 @@ class ViewBindTest < Minitest::Test
     assert_equal squish(plain.render(partial: "fixtures/ivar_outer")), squish(bound.output_buffer)
   end
 
+  # The fast path swaps @current_template / @output_buffer / @virtual_path itself, so it has
+  # to put them back exactly as it found them, even when the partial raises.
+  def test_restores_view_state_after_rendering
+    v = view
+    v.instance_eval { bind_render "fixtures/leaf", word: "a" }
+    assert_nil v.instance_variable_get(:@current_template)
+    assert_nil v.instance_variable_get(:@virtual_path)
+  end
+
+  def test_restores_view_state_after_an_error
+    v = view
+    before_buffer = v.output_buffer
+    assert_raises(ActionView::Template::Error) { v.instance_eval { bind_render "fixtures/boom" } }
+    assert_nil v.instance_variable_get(:@current_template)
+    assert_same before_buffer, v.output_buffer
+  end
+
   def test_missing_partial_raises_missing_template
     v = view
     assert_raises(ActionView::MissingTemplate) { v.instance_eval { bind_render "fixtures/nope" } }

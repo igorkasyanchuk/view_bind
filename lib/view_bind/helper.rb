@@ -14,7 +14,14 @@ module ViewBind
     def bind_render(path, **locals, &block)
       raise ArgumentError, "bind_render does not support a block; use render for the block form" if block
 
-      ViewBind.template_for(self, path, locals.keys).render(self, locals, output_buffer)
+      bound = ViewBind.bound_for(self, path, locals.keys)
+      # Strict-locals partials go through Template#render, which owns the argument checking
+      # and the StrictLocalsError message; everything else calls the compiled method.
+      if bound.strict
+        bound.template.render(self, locals, output_buffer)
+      else
+        bind_run(bound, locals, output_buffer)
+      end
       nil
     end
 
@@ -43,7 +50,7 @@ module ViewBind
       locals     = shared.dup
       counter    = :"#{as}_counter"
       iteration  = :"#{as}_iteration"
-      template   = ViewBind.template_for(self, path, locals.keys + [as, counter, iteration])
+      bound      = ViewBind.bound_for(self, path, locals.keys + [as, counter, iteration])
       buffer     = output_buffer
 
       partial_iteration = ActionView::PartialIteration.new(collection.size)
@@ -52,10 +59,37 @@ module ViewBind
       collection.each do |item|
         locals[as]      = item
         locals[counter] = partial_iteration.index
-        template.render(self, locals, buffer, implicit_locals: [counter, iteration])
+        if bound.strict
+          bound.template.render(self, locals, buffer, implicit_locals: [counter, iteration])
+        else
+          bind_run(bound, locals, buffer)
+        end
         partial_iteration.iterate!
       end
       nil
+    end
+
+    private
+
+    # Mirrors ActionView::Base#_run. This lives in the helper, which is included in the view
+    # class, so it can save and restore the view's own ivars directly -- going through
+    # instance_variable_get/set costs more than the render it is wrapping.
+    def bind_run(bound, locals, buffer)
+      previous_buffer   = @output_buffer
+      previous_path     = @virtual_path
+      previous_template = @current_template
+
+      @current_template = bound.template
+      @output_buffer    = buffer
+      public_send(bound.method_name, locals, buffer)
+      nil
+    rescue StandardError => e
+      # Same wrapping Template#render does, so the error page still names the partial.
+      bound.template.send(:handle_render_error, self, e)
+    ensure
+      @output_buffer    = previous_buffer
+      @virtual_path     = previous_path
+      @current_template = previous_template
     end
   end
 end

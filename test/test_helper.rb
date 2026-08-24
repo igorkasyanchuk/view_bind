@@ -30,7 +30,7 @@ Rails.application.initialize!
 # eager_load is off here, so ActionView::Base would not load until the first render and the
 # railtie's on_load hook (which registers the dependency tracker) would fire at an unpredictable
 # point in the test order. Touch it now so every test starts from the same state.
-ActionView::Base
+ActionView::Base.name # force the on_load(:action_view) hook
 require "action_view/dependency_tracker"
 
 I18n.available_locales = %i[en fr]

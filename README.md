@@ -91,65 +91,49 @@ Four routes, **byte-identical HTML**, different call styles.
 ```
 $ RAILS_ENV=production bundle exec rake bench
 
-view_bind 0.1.0 — 200 posts, Rails 8.1.3.1, Ruby 3.4.5 +YJIT
+view_bind 0.1.0 — 200 posts per page, Rails 8.1.3.1, Ruby 3.4.5 +YJIT
+database=SQLite
 env=production  eager_load=true  cache_template_loading=true  reloading=false
-7 rounds x 20 full requests, interleaved, best round per case
+5 rounds x 20 full requests, interleaved, best round per case
+counters: attached only for the inspection pass
 
                                          ms    gc ms      objects   renders  queries     obj x    time x
-  render everywhere (baseline)       13.591     1.40       81 647      2648        8     1.00x     1.00x
-  bind_render in the view             5.288     0.45       28 020        48        8     2.91x     2.57x
-  bind_render in the layout          13.866     1.40       80 739      2601        8     1.01x     0.98x
-  bind_render in both                 5.526     0.45       27 105         1        8     3.01x     2.46x
+  render everywhere (baseline)       11.380     1.20       68 342      2662       10     1.00x     1.00x
+  bind_render in the view             5.980     0.45       28 722        62       10     2.38x     1.90x
+  bind_render in the layout          11.050     1.20       67 474      2601       10     1.01x     1.03x
+  bind_render in both                 5.810     0.45       27 847         1       10     2.45x     1.95x
 ```
+
+Medians of five runs of five rounds. 2 662 render calls collapse to 1, 40 495 fewer objects
+per request, and the page comes back in about half the time.
 
 ### The database decides how much of this you keep
 
-The same benchmark, same rows, same HTML, only the backend changed — five runs each:
-
-Same code, same 10 queries, same HTML — five runs of five rounds on each backend:
+Same code, same 10 queries, same HTML — only the backend changed:
 
 | backend | baseline | bind_render in both | speedup |
 | --- | ---: | ---: | ---: |
-| SQLite, file | 14.41 ms | 5.79 ms | **2.49x** |
-| PostgreSQL 17, localhost | 21.68 ms | 13.24 ms | **1.65x** |
+| SQLite, file | 11.38 ms | 5.81 ms | **1.95x** |
+| PostgreSQL 17, localhost | 18.16 ms | 13.20 ms | **1.38x** |
 
-Postgres adds a flat **+7.3 to +7.5 ms to every route** — baseline and bound alike — so the
-same saved render work is a smaller fraction of a bigger number. Allocations tell the story
-that does not move: 2.96x on SQLite, 2.92x on Postgres.
+Postgres adds a flat ~7 ms to every route, baseline and bound alike, so the same saved work is
+a smaller share of a bigger number. The allocation ratio barely moves (2.45x vs 2.42x), which
+is why it is the more portable figure.
 
-PostgreSQL, five runs of five rounds, 10 queries per request:
+### If you run an APM
 
-```
-  case                            min ms   median     max    objects  renders queries  obj x  time x
-  render everywhere (baseline)     20.10    21.68   22.07      83 280     2662      10  1.00x   1.00x
-  bind_render in the view          13.26    13.66   14.10      29 653       62      10  2.81x   1.59x
-  bind_render in the layout        21.04    21.41   22.29      82 142     2602      10  1.01x   1.00x
-  bind_render in both               9.55    13.24   13.54      28 509        2      10  2.92x   1.65x
-```
+Anything subscribed to `render_partial.action_view` — Skylight, Datadog, New Relic, Scout —
+pays a notification per partial. The baseline fires ~2 662 of them per request; the bound page
+fires one. Attaching the counters during timing (`APM=1 bundle exec rake bench`) measures that
+world:
 
-Eight queries over a socket cost about 7 ms that every route pays equally, so the view savings
-are diluted. Over a network to a real database server it compresses further. Run
-`DB=postgres bundle exec rake bench` to measure it yourself; the numbers in this README are the
-SQLite ones unless stated.
+| | baseline | bind_render in both | speedup |
+| --- | ---: | ---: | ---: |
+| plain | 11.38 ms | 5.81 ms | 1.95x |
+| with view instrumentation | 14.29 ms | 5.83 ms | **2.44x** |
 
-**Allocations fall further than wall-clock.** 3.01x fewer objects, ~2.5x faster: the 8 queries
-and the ActiveRecord objects behind them cost the same on every route, so they dilute the view
-savings. Quote the time ratio when you talk about this gem.
-
-Five independent runs on an idle machine, one fresh process each:
-
-```
-case                            min ms   median    mean     max   spread    objects
-render everywhere (baseline)     13.87    13.97   13.96   14.07       1%     81 647
-bind_render in the view           5.31     5.60    5.54    5.64       6%     28 020
-bind_render in the layout        13.47    13.56   13.63   13.80       2%     80 739
-bind_render in both               5.08     5.41    5.36    5.47       8%     27 105
-
-per-run ratios:  view 2.46-2.65x (median 2.49x) · layout 1.01-1.04x · both 2.56-2.76x (median 2.56x)
-```
-
-Read the object counts: they are exact and do not move with machine load, while milliseconds
-swing with whatever else the machine is doing.
+The instrumented baseline is 2.9 ms and 14 334 objects heavier; the bound page is unchanged.
+The gem is worth more in an instrumented app than in a bare one.
 
 ### Measure in production, not in development
 
@@ -158,15 +142,16 @@ The same benchmark under `RAILS_ENV=development`:
 ```
 env=development  eager_load=false  cache_template_loading=false  reloading=true
 
-  render everywhere (baseline)       15.164     1.85       74 689       2630      1.00x
-  bind_render in the view             5.502     0.85       41 072         30      1.82x
-  bind_render in both                 6.028     0.90       40 690          1      1.84x
+  render everywhere (baseline)       15.452     4.75       68 531      2662     1.00x   1.00x
+  bind_render in the view             7.753     1.20       48 921        62     1.40x   1.99x
+  bind_render in both                 7.238     1.10       48 469         1     1.41x   2.13x
 ```
 
-Half the win. In development the lookup cache is bypassed so that
-editing a partial takes effect without a restart, which means every call re-resolves the
-template — 41 072 objects instead of 20 900. That is the correct trade, but do not judge the
-gem by what you see while clicking around `rails s`.
+In development the lookup cache is bypassed so that editing a partial takes effect without a
+restart, so every call re-resolves the template: 48 469 objects instead of 27 847. The
+allocation win drops from 2.45x to 1.41x. Wall-clock happens to look similar here because
+development also carries more overhead on the baseline side — judge the gem on production
+numbers, not on what you see while clicking around `rails s`.
 
 **The layout is not where your time goes.** Converting only the layout is worth 1.01x.
 Converting the view, where a partial is called once per row, is worth ~2.5x. Convert loops,

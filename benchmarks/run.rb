@@ -6,6 +6,12 @@
 #
 # Cases are interleaved and the best round is reported, so CPU drift hits every case
 # equally. Allocation counts are exact and do not move with machine load -- read those.
+#
+# The render/SQL counters are deliberately NOT attached while timing: a subscriber on
+# render_partial fires once per partial, which is ~2 600 times per baseline request and twice
+# per bound request, and would charge the baseline for the measurement. Set APM=1 to attach
+# them during timing instead, which is what an app running an APM that subscribes to view
+# events actually experiences.
 require_relative "app"
 
 N = Integer(ENV.fetch("N", 20))   # requests per round
@@ -25,15 +31,31 @@ ActiveRecord::Base.logger = nil
 
 # count how many partial renders and SQL queries each route actually performs
 queries = Hash.new(0)
-ActiveSupport::Notifications.subscribe("sql.active_record") do |_, _, _, _, payload|
-  queries[:total] += 1 unless payload[:name].to_s =~ /SCHEMA|TRANSACTION/
-end
-
 renders = Hash.new(0)
-%w[render_partial render_collection render_template].each do |event|
-  ActiveSupport::Notifications.subscribe("#{event}.action_view") do |_, _, _, _, payload|
-    renders[:total] += (payload[:count] || 1)
+
+attach_counters = lambda do
+  ActiveSupport::Notifications.subscribe("sql.active_record") do |_, _, _, _, payload|
+    queries[:total] += 1 unless payload[:name].to_s =~ /SCHEMA|TRANSACTION/
   end
+  %w[render_partial render_collection render_template].each do |event|
+    ActiveSupport::Notifications.subscribe("#{event}.action_view") do |_, _, _, _, payload|
+      renders[:total] += (payload[:count] || 1)
+    end
+  end
+end
+instrumented = ENV["APM"] == "1"
+attach_counters.call if instrumented
+
+# Every route must produce the same HTML, or the comparison measures nothing. The footer
+# prints a timestamp, so normalise that before comparing.
+normalise = ->(body) { body.sub(/rendered \d\d:\d\d:\d\d\.\d+/, "TIME") }
+bodies = CASES.to_h { |label, path| session.get(path); [label, normalise.call(session.response.body)] }
+reference = bodies[CASES.first[0]]
+bodies.each do |label, body|
+  next if body == reference
+
+  abort "  ABORT: #{label} does not render the same HTML as the baseline " \
+        "(#{body.bytesize} bytes vs #{reference.bytesize}). The comparison would be meaningless."
 end
 
 results = Hash.new { |h, k| h[k] = { ms: Float::INFINITY, objects: 0, gc: 0.0 } }
@@ -56,6 +78,8 @@ R.times do
   end
 end
 
+attach_counters.call unless instrumented
+
 baseline = results[CASES.first[0]]
 
 puts "\nview_bind #{ViewBind::VERSION} — #{POSTS_PER_PAGE} posts per page, Rails #{Rails::VERSION::STRING}, " \
@@ -64,7 +88,8 @@ puts "database=#{ActiveRecord::Base.connection.adapter_name}"
 puts "env=#{Rails.env}  eager_load=#{Rails.application.config.eager_load}  " \
      "cache_template_loading=#{ActionView::Resolver.caching?}  " \
      "reloading=#{Rails.application.config.enable_reloading}"
-puts "#{R} rounds x #{N} full requests, interleaved, best round per case\n\n"
+puts "#{R} rounds x #{N} full requests, interleaved, best round per case"
+puts "counters: #{instrumented ? "attached while timing (APM=1)" : "attached only for the inspection pass"}\n\n"
 printf("  %-30s %10s %8s %12s %9s %8s %9s %9s\n",
        "", "ms", "gc ms", "objects", "renders", "queries", "obj x", "time x")
 CASES.each do |label, path|
@@ -79,7 +104,7 @@ end
 
 puts "\n  #{Post.count} posts / #{Comment.count} comments in #{ActiveRecord::Base.connection.adapter_name}, " \
      "#{POSTS_PER_PAGE} rendered per request."
-puts "  HTML is byte-identical across all four routes."
+puts "  HTML verified byte-identical across all four routes (#{reference.bytesize} bytes)."
 puts "  obj x is the allocation ratio, time x the wall-clock ratio -- they differ because the"
-puts "  8 queries and their ActiveRecord objects cost the same on every route."
+puts "  #{queries[:total]} queries and their ActiveRecord objects cost the same on every route."
 puts "  Objects are exact; milliseconds move with machine load.\n\n"

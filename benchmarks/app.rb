@@ -105,60 +105,73 @@ Rails.application.initialize!
 ActiveRecord::Base.logger = nil
 ActiveRecord::Migration.verbose = false
 
-ActiveRecord::Schema.define do
-  create_table :authors, force: true do |t|
-    t.string :name
-    t.string :city
-  end
+# Only build the schema and rows when they are not already there. `rake dummy` and
+# `rake bench` share one database -- a SQLite file, or view_bind_bench on PostgreSQL --
+# and dropping the tables under a running server would 500 every request it is serving.
+POST_COUNT = 2_000
+COMMENT_COUNT = 6_000
 
-  create_table :posts, force: true do |t|
-    t.references :author
-    t.string :title
-    t.string :category
-    t.text :excerpt
-    t.integer :views
-    t.string :tag_list
-    t.timestamps
-  end
-
-  create_table :comments, force: true do |t|
-    t.references :post
-    t.string :body
-    t.string :author_name
-    t.timestamps
-  end
+def seeded?
+  Post.count == POST_COUNT && Comment.count == COMMENT_COUNT
+rescue ActiveRecord::StatementInvalid
+  false
 end
 
-# Enough rows that the queries are doing real work, not so many that the benchmark
-# turns into a database benchmark.
-AUTHORS    = %w[Ada Linus Yukihiro Grace Rich Matz Aaron Eileen Xavier Jeremy].freeze
-CITIES     = %w[Kyiv Lviv Berlin Lisbon Tokyo].freeze
-CATEGORIES = %w[performance rails ruby databases frontend].freeze
-TAG_POOL   = %w[ruby rails perf views sqlite erb caching yjit].freeze
+unless seeded?
+  ActiveRecord::Schema.define do
+    create_table :authors, force: true do |t|
+      t.string :name
+      t.string :city
+    end
 
-author_ids = AUTHORS.each_with_index.map do |name, i|
-  Author.create!(name: name, city: CITIES[i % CITIES.size]).id
+    create_table :posts, force: true do |t|
+      t.references :author
+      t.string :title
+      t.string :category
+      t.text :excerpt
+      t.integer :views
+      t.string :tag_list
+      t.timestamps
+    end
+
+    create_table :comments, force: true do |t|
+      t.references :post
+      t.string :body
+      t.string :author_name
+      t.timestamps
+    end
+  end
+
+  # Enough rows that the queries are doing real work, not so many that the benchmark
+  # turns into a database benchmark.
+  AUTHORS    = %w[Ada Linus Yukihiro Grace Rich Matz Aaron Eileen Xavier Jeremy].freeze
+  CITIES     = %w[Kyiv Lviv Berlin Lisbon Tokyo].freeze
+  CATEGORIES = %w[performance rails ruby databases frontend].freeze
+  TAG_POOL   = %w[ruby rails perf views sqlite erb caching yjit].freeze
+
+  author_ids = AUTHORS.each_with_index.map do |name, i|
+    Author.create!(name: name, city: CITIES[i % CITIES.size]).id
+  end
+
+  Post.insert_all(
+    (1..POST_COUNT).map do |i|
+      { author_id: author_ids[i % author_ids.size],
+        title: "Post number #{i}",
+        category: CATEGORIES[i % CATEGORIES.size],
+        excerpt: "Body text for post #{i}. " * 4,
+        views: i * 7 % 991,
+        tag_list: TAG_POOL.rotate(i).first(3).join(","),
+        # spread over six months, so "top posts this month" selects a real slice
+        created_at: Time.now - (i % 180) * 86_400, updated_at: Time.now }
+    end
+  )
+
+  Comment.insert_all(
+    (1..COMMENT_COUNT).map do |i|
+      { post_id: (i % POST_COUNT) + 1,
+        body: "Comment #{i} on the post, with a sentence of text.",
+        author_name: AUTHORS[i % AUTHORS.size],
+        created_at: Time.now, updated_at: Time.now }
+    end
+  )
 end
-
-Post.insert_all(
-  (1..2_000).map do |i|
-    { author_id: author_ids[i % author_ids.size],
-      title: "Post number #{i}",
-      category: CATEGORIES[i % CATEGORIES.size],
-      excerpt: "Body text for post #{i}. " * 4,
-      views: i * 7 % 991,
-      tag_list: TAG_POOL.rotate(i).first(3).join(","),
-      # spread over six months, so "top posts this month" selects a real slice
-      created_at: Time.now - (i % 180) * 86_400, updated_at: Time.now }
-  end
-)
-
-Comment.insert_all(
-  (1..6_000).map do |i|
-    { post_id: (i % 2_000) + 1,
-      body: "Comment #{i} on the post, with a sentence of text.",
-      author_name: AUTHORS[i % AUTHORS.size],
-      created_at: Time.now, updated_at: Time.now }
-  end
-)
-

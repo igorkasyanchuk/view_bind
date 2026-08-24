@@ -67,7 +67,17 @@ Works the same in a view, in a partial, and in a layout:
 </article>
 ```
 
-Both helpers return `nil` and write into the buffer, so `<%= %>` appends nothing extra.
+Both helpers write into the buffer and return `nil`, so `<%= %>` appends nothing extra. When
+you need the markup **as a value** — `content_for`, a helper argument — use `bind_capture`,
+which returns a string:
+
+```erb
+<% content_for :sidebar, bind_capture("shared/widget") %>
+```
+
+Passing `bind_render` itself as a value would put the HTML in the page and store an empty
+string, so the block form of `render` is not supported either: passing a block raises
+`ArgumentError` rather than dropping it silently.
 
 ## Benchmark
 
@@ -130,6 +140,9 @@ goes wrong:
 | Works in a layout, and nested | `test_works_in_a_layout_and_nested_partials` |
 | Instance variables in nested partials | `test_instance_variables_reach_nested_partials` |
 | Missing partial still raises `MissingTemplate` | `test_missing_partial_raises_missing_template` |
+| `bind_capture` returns markup, `content_for` works | `test_bind_capture_works_with_content_for` |
+| A block raises instead of being dropped | `test_block_form_raises_instead_of_being_ignored` |
+| The gem loads outside Rails | `test_loads_without_rails` |
 
 In development, templates are re-resolved on every call (guarded on
 `ActionView::Resolver.caching?`), so editing a partial works without a restart — and Rails'
@@ -151,6 +164,9 @@ That is not a trick this gem plays: the partial is a normal compiled template, s
 - The dependency tracker finds `bind_render "some/partial"` by literal string. A path built at
   runtime is invisible to it, so a `cache` block above a dynamically bound partial can go stale.
   Same caveat as Rails' own tracker with dynamic `render`.
+- Dependency tracking is registered for ERB only. For another engine, add
+  `ViewBind::Tracker.register_for(:haml)` in an initializer. Registration extends whatever
+  tracker is already installed for that handler rather than replacing it.
 - No `render` instrumentation is emitted for bound partials, by design. Your APM will show
   fewer view events and per-partial timings for them disappear.
 - The resolved-template cache is not evicted. It is keyed per call site, per lookup details, so

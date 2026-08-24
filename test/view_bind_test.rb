@@ -113,12 +113,50 @@ class ViewBindTest < Minitest::Test
     ActionView::LookupContext::DetailsKey.clear
   end
 
-  def test_tracker_delegates_to_the_configured_base
+  def test_tracker_default_matches_the_frameworks_own
     expected = if ActionView.respond_to?(:render_tracker) && ActionView.render_tracker == :ruby
       ActionView::DependencyTracker::RubyTracker
     else
       ActionView::DependencyTracker::ERBTracker
     end
-    assert_equal expected, ViewBind::Tracker.base
+    assert_equal expected, ViewBind::Tracker.default_tracker
+  end
+
+  # Registering must extend the tracker that is already installed, not replace it: another
+  # gem's ERB tracker has to keep contributing its dependencies.
+  def test_tracker_chains_to_a_previously_registered_tracker
+    handler = ActionView::Template.handler_for_extension(:erb)
+    assert_equal ViewBind::Tracker.default_tracker, ViewBind::Tracker.wrapped[handler]
+  end
+
+  # bind_render writes to the buffer and returns nil; bind_capture is the value form.
+  def test_bind_capture_returns_the_markup
+    v = view
+    captured = v.instance_eval { bind_capture "fixtures/greeting" }
+    assert_equal "<span>hello</span>", squish(captured)
+    assert_equal "", squish(v.output_buffer)
+  end
+
+  def test_bind_capture_works_with_content_for
+    v = view
+    v.instance_eval { content_for :side, bind_capture("fixtures/greeting") }
+    assert_equal "<span>hello</span>", squish(v.content_for(:side))
+    assert_equal "", squish(v.output_buffer)
+  end
+
+  # A block is not supported; dropping it silently loses content.
+  def test_block_form_raises_instead_of_being_ignored
+    v = view
+    assert_raises(ArgumentError) { v.instance_eval { bind_render("fixtures/greeting") { "body" } } }
+    assert_raises(ArgumentError) do
+      v.instance_eval { bind_render_each("fixtures/item", %w[a], as: :item) { "body" } }
+    end
+  end
+
+  # Requiring the gem must not drag in ActionView internals before ActiveSupport exists.
+  def test_loads_without_rails
+    lib = File.expand_path("../lib", __dir__)
+    ok = system(RbConfig.ruby, "-I", lib, "-e", 'require "view_bind"', out: File::NULL, err: File::NULL)
+    assert ok, "require \"view_bind\" failed outside of Rails"
   end
 end

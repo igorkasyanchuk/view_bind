@@ -1,9 +1,6 @@
 # frozen_string_literal: true
 
 require "concurrent/map"
-# PartialIteration ships with the collection renderer, which is not loaded on its own
-# in an app with eager_load disabled.
-require "action_view/renderer/collection_renderer"
 require_relative "view_bind/version"
 require_relative "view_bind/helper"
 require_relative "view_bind/tracker"
@@ -17,6 +14,8 @@ require_relative "view_bind/railtie" if defined?(Rails::Railtie)
 # string copy out of it. What is NOT skipped: the partial is still an ordinary compiled
 # template, so backtraces name the real file and line, `local_assigns` works, strict locals
 # work, development reloading works and fragment cache digests still bust.
+#
+# Nothing here requires ActionView at load time: the gem may be required before Rails.
 module ViewBind
   # (details_key, view class, virtual path, locals shape) => ActionView::Template
   CACHE = Concurrent::Map.new
@@ -34,8 +33,9 @@ module ViewBind
       CACHE.fetch_or_store(key) { resolve(view, path, keys) }
     end
 
-    # Clears the resolved-template cache. Rails calls this for you on reload; you only need
-    # it if you swap view paths at runtime.
+    # Drops every resolved template. The railtie hooks this to ActiveSupport::Reloader, so
+    # a code reload cannot leave a stale template behind even in an app that turns
+    # `cache_template_loading` on in development.
     def clear_cache
       CACHE.clear
     end

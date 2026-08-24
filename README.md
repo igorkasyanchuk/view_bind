@@ -37,6 +37,31 @@ partial. Three things keep it there:
   bookkeeping `ActionView::Base#_run` does — from inside the helper, which is included in the
   view class, so those are plain ivar assignments rather than `instance_variable_set`.
 
+### bind_render_memo
+
+A page that renders the same tag pill 600 times from eight distinct strings renders it eight
+times if you ask it to:
+
+```erb
+<%= bind_render_memo "shared/tag", tag: tag %>
+```
+
+The markup is kept for the rest of the request, keyed by the locals *values*. Two rules keep
+it honest. Only values it can compare safely are memoised — String, Symbol, Numeric, true,
+false, nil — so passing a model falls through to a real render rather than risking two
+records that compare equal sharing markup. And the memo lives on the view, so it dies with
+the request: a partial reading `I18n.locale` or `current_user` through a helper stays correct,
+because a request has one of each. A partial that is *not* a pure function of its locals plus
+request state (a counter, `Time.now`, `rand`) must not use it.
+
+On the benchmark page — 600 buttons from 3 combinations, 600 tags from 8, 200 avatars from 10
+— this is worth another 3 392 objects and 0.78 ms: **3.16x instead of 2.68x**.
+
+It is not free: the lookup costs about 0.59 µs against 0.93 µs for rendering the leaf partial
+outright. Memoising a partial cheaper than that *loses*. An earlier version of this helper,
+keyed by an array and type-checked with a block, cost more than it saved on exactly the
+partials it was written for.
+
 `bind_render_each` goes further: every item renders the same template, so the view bookkeeping
 is saved and restored once for the whole collection rather than once per item. On a 20-item
 collection that is **1.06 µs and 3.6 objects per item, against 2.77 µs and 11.8 for Rails'
@@ -117,10 +142,11 @@ env=production  eager_load=true  cache_template_loading=true  reloading=false
 counters: attached only for the inspection pass
 
                                          ms    gc ms      objects   renders  queries     obj x    time x
-  render everywhere (baseline)       11.250     1.25       68 342      2662       10     1.00x     1.00x
-  bind_render in the view             4.450     0.35       21 723        62       10     3.15x     2.52x
-  bind_render in the layout          11.160     1.20       67 316      2601       10     1.02x     1.01x
-  bind_render in both                 4.420     0.35       20 689         1       10     3.30x     2.57x
+  render everywhere (baseline)       11.110     1.25       68 342      2662       10     1.00x     1.00x
+  bind_render in the view             4.430     0.35       21 723        62       10     3.15x     2.55x
+  bind_render in the layout          11.230     1.20       67 316      2601       10     1.02x     0.99x
+  bind_render in both                 4.140     0.35       20 689         1       10     3.30x     2.68x
+  + memoised leaf partials            3.360     0.30       17 297         1       10     3.95x     3.16x
 ```
 
 Medians of five runs of five rounds. 2 662 render calls collapse to 1, 47 653 fewer objects
@@ -132,8 +158,8 @@ Same code, same 10 queries, same HTML — only the backend changed:
 
 | backend | baseline | bind_render in both | speedup |
 | --- | ---: | ---: | ---: |
-| SQLite, file | 11.25 ms | 4.42 ms | **2.57x** |
-| PostgreSQL 17, localhost | 18.72 ms | 11.86 ms | **1.58x** |
+| SQLite, file | 11.11 ms | 4.14 ms | **2.68x** |
+| PostgreSQL 17, localhost | 18.59 ms | 11.08 ms | **1.66x** |
 
 Postgres adds a flat ~7 ms to every route, baseline and bound alike, so the same saved work is
 a smaller share of a bigger number. The allocation ratio barely moves (3.03x vs 2.98x), which

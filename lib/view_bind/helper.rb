@@ -3,6 +3,11 @@
 module ViewBind
   # Helpers available in every view, partial and layout.
   module Helper
+    # Values bind_render_memo will key on: comparing anything else risks serving markup
+    # built from a different object that merely looks equal.
+    MEMOISABLE = [String, Symbol, Numeric, TrueClass, FalseClass, NilClass].freeze
+    # A page with an unbounded set of locals values must not grow the memo forever.
+    MEMO_LIMIT = 512
     # Render a partial by calling its own compiled method, straight into the current buffer.
     #
     #   <%= bind_render "shared/header" %>
@@ -30,6 +35,47 @@ module ViewBind
     #   <% content_for :sidebar, bind_capture("shared/widget") %>
     def bind_capture(path, **locals)
       capture { bind_render(path, **locals) }
+    end
+
+    # Render a partial once per distinct set of locals *values*, reusing the markup for
+    # every repeat within this request.
+    #
+    #   <%= bind_render_memo "shared/tag", tag: tag %>
+    #
+    # For a partial that is a pure function of its locals -- no ivars, no `Time.now`, no
+    # counters, nothing but the values passed in -- this collapses hundreds of renders into
+    # a handful. A page listing 600 tags drawn from eight distinct strings renders eight.
+    #
+    # Only values it can safely compare are memoised (String, Symbol, Numeric, true, false,
+    # nil); anything else -- a model, a hash, an array -- falls through to a normal render,
+    # so passing a record cannot serve you a stale card. The memo lives on the view, so it
+    # dies with the request: a partial that reads I18n.locale or current_user through a
+    # helper is still correct, because a request has only one of each.
+    def bind_render_memo(path, **locals)
+      values = locals.values
+      # No block, no intermediate array: the type test is on the hot path of every call.
+      i = 0
+      while i < values.size
+        case values[i]
+        when String, Symbol, Numeric, true, false, nil then i += 1
+        else return bind_render(path, **locals)
+        end
+      end
+
+      memo = (@__view_bind_memo ||= {})
+      by_path = (memo[path] ||= {})
+      # One local is overwhelmingly the common case, and a bare value keys far cheaper than
+      # an array: no allocation, no array hashing.
+      key = values.size == 1 ? values[0] : values
+      html = by_path[key]
+
+      if html.nil?
+        html = capture { bind_render(path, **locals) }
+        by_path[key] = html if by_path.size < MEMO_LIMIT
+      end
+
+      output_buffer << html
+      nil
     end
 
     # Collection form. Resolves once, then one render per item reusing a single locals hash,
@@ -73,13 +119,13 @@ module ViewBind
       previous_template = @current_template
       @current_template = bound.template
       @output_buffer    = buffer
-      method_name       = bound.method_name
+      render_method     = bound.unbound_method
 
       begin
         collection.each do |item|
           locals[as]      = item
           locals[counter] = partial_iteration.index
-          public_send(method_name, locals, buffer)
+          render_method.bind_call(self, locals, buffer)
           partial_iteration.iterate!
         end
       rescue StandardError => e
@@ -104,7 +150,7 @@ module ViewBind
 
       @current_template = bound.template
       @output_buffer    = buffer
-      public_send(bound.method_name, locals, buffer)
+      bound.unbound_method.bind_call(self, locals, buffer)
       nil
     rescue StandardError => e
       # Same wrapping Template#render does, so the error page still names the partial.

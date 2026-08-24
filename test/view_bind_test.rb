@@ -139,6 +139,33 @@ class ViewBindTest < Minitest::Test
     assert_equal "<b>x</b>", squish(view.render(partial: "fixtures/rude", locals: { item: "x" }))
   end
 
+  def test_memo_matches_plain_rendering
+    memoised = view
+    plain    = view
+    %w[a b a b a].each do |word|
+      memoised.instance_eval { bind_render_memo "fixtures/leaf", word: word }
+      plain.instance_eval { bind_render "fixtures/leaf", word: word }
+    end
+    assert_equal squish(plain.output_buffer), squish(memoised.output_buffer)
+  end
+
+  # Only values it can compare safely are memoised. A model passed as a local must fall
+  # through to a real render, or two different records that compare equal would share markup.
+  def test_memo_falls_through_for_values_it_cannot_key_on
+    v = view
+    v.instance_eval { bind_render_memo "fixtures/stamped", word: "x", marker: Object.new }
+    v.instance_eval { bind_render_memo "fixtures/stamped", word: "x", marker: Object.new }
+    first, second = v.output_buffer.to_s.scan(/<i>x-(\d+)<\/i>/).flatten
+    refute_equal first, second, "both renders reused one memo entry"
+  end
+
+  def test_memo_is_per_view_not_per_process
+    first = view
+    first.instance_eval { bind_render_memo "fixtures/leaf", word: "z" }
+    second = view
+    assert_nil second.instance_variable_get(:@__view_bind_memo)
+  end
+
   def test_missing_partial_raises_missing_template
     v = view
     assert_raises(ActionView::MissingTemplate) { v.instance_eval { bind_render "fixtures/nope" } }

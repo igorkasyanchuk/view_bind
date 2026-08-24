@@ -55,6 +55,7 @@ class BenchApp < Rails::Application
     get "/bind_view"   => "pages#bind_view"
     get "/bind_layout" => "pages#bind_layout"
     get "/bind_both"   => "pages#bind_both"
+    get "/bind_memo"   => "pages#bind_memo"
   end
 end
 
@@ -79,6 +80,9 @@ class PagesController < ActionController::Base
 
   # bind_render in both
   def bind_both   = render template: "pages/bound", layout: "layouts/bound"
+
+  # bind_render in both, with the repeated leaf partials memoised for the request
+  def bind_memo   = render template: "pages/memo", layout: "layouts/bound"
 
   private
 

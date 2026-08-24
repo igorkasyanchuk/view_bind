@@ -21,7 +21,8 @@ CASES = [
   ["render everywhere (baseline)", "/"],
   ["bind_render in the view",      "/bind_view"],
   ["bind_render in the layout",    "/bind_layout"],
-  ["bind_render in both",          "/bind_both"]
+  ["bind_render in both",          "/bind_both"],
+  ["+ memoised leaf partials",     "/bind_memo"]
 ].freeze
 
 session = ActionDispatch::Integration::Session.new(Rails.application)

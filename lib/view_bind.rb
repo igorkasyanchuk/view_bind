@@ -21,7 +21,7 @@ module ViewBind
   # than by calling its compiled method: strict-locals partials (Template#render owns the
   # argument checking and its error message) and any Rails whose internals this gem cannot
   # reach.
-  Bound = Struct.new(:template, :method_name, :slow)
+  Bound = Struct.new(:template, :method_name, :slow, :unbound_method)
 
   # details_key => virtual path => [[locals keys, Bound], ...]
   #
@@ -108,7 +108,11 @@ module ViewBind
       return Bound.new(template, nil, true) if template.strict_locals? || !fast_path_available?
 
       template.send(:compile!, view)
-      Bound.new(template, template.send(:method_name), false)
+      method_name = template.send(:method_name)
+      # bind_call on the UnboundMethod dispatches faster than public_send, and the method
+      # lives on the container, so it can be looked up once here rather than per call.
+      Bound.new(template, method_name, false,
+                view.compiled_method_container.instance_method(method_name))
     end
 
     def resolve(view, path, keys)

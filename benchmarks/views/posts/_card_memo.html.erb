@@ -1,0 +1,8 @@
+<article class="card">
+  <h3 class="card-title"><a href="/posts/<%= post.id %>"><%= post.title %></a></h3>
+  <%= bind_render "posts/author_memo", post: post %>
+  <p class="card-body"><%= post.excerpt %></p>
+  <%= bind_render "posts/tags_memo", post: post %>
+  <%= bind_render_memo "posts/ownership_bound" %>
+  <%= bind_render "posts/actions_memo", post: post %>
+</article>

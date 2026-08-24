@@ -60,6 +60,7 @@ baseline = results[CASES.first[0]]
 
 puts "\nview_bind #{ViewBind::VERSION} — #{POSTS_PER_PAGE} posts per page, Rails #{Rails::VERSION::STRING}, " \
      "Ruby #{RUBY_VERSION}#{RubyVM::YJIT.enabled? ? " +YJIT" : ""}"
+puts "database=#{ActiveRecord::Base.connection.adapter_name}"
 puts "env=#{Rails.env}  eager_load=#{Rails.application.config.eager_load}  " \
      "cache_template_loading=#{ActionView::Resolver.caching?}  " \
      "reloading=#{Rails.application.config.enable_reloading}"

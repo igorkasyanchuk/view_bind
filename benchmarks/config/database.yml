@@ -1,9 +1,28 @@
-# The dummy app runs entirely in memory: the schema is defined and seeded in app.rb,
-# so a benchmark run never touches disk and always starts from the same rows.
+# Two backends, one benchmark. Default is SQLite in memory, so a run needs nothing
+# installed and always starts from the same rows:
+#
+#   bundle exec rake bench
+#
+# Set DB=postgres to measure against a real Postgres instead (create the database first:
+# createdb view_bind_bench):
+#
+#   DB=postgres bundle exec rake bench
+#
+<% if ENV["DB"] == "postgres" %>
+default: &default
+  adapter: postgresql
+  host: <%= ENV.fetch("PGHOST", "localhost") %>
+  port: <%= ENV.fetch("PGPORT", "5432") %>
+  username: <%= ENV.fetch("PGUSER", "postgres") %>
+  password: <%= ENV.fetch("PGPASSWORD", "") %>
+  database: <%= ENV.fetch("PGDATABASE", "view_bind_bench") %>
+  pool: 5
+<% else %>
 default: &default
   adapter: sqlite3
   database: ":memory:"
   pool: 5
+<% end %>
 
 development:
   <<: *default

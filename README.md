@@ -102,6 +102,20 @@ env=production  eager_load=true  cache_template_loading=true  reloading=false
   bind_render in both                 5.526     0.45       27 105         1        8     3.01x     2.46x
 ```
 
+### The database decides how much of this you keep
+
+The same benchmark, same rows, same HTML, only the backend changed — five runs each:
+
+| backend | baseline | bind_render in both | speedup |
+| --- | ---: | ---: | ---: |
+| SQLite, in memory | 13.37 ms | 5.07 ms | **2.69x** |
+| PostgreSQL 17, localhost | 20.14 ms | 11.68 ms | **1.75x** |
+
+Eight queries over a socket cost about 7 ms that every route pays equally, so the view savings
+are diluted. Over a network to a real database server it compresses further. Run
+`DB=postgres bundle exec rake bench` to measure it yourself; the numbers in this README are the
+SQLite ones unless stated.
+
 **Allocations fall further than wall-clock.** 3.01x fewer objects, ~2.5x faster: the 8 queries
 and the ActiveRecord objects behind them cost the same on every route, so they dilute the view
 savings. Quote the time ratio when you talk about this gem.

@@ -53,6 +53,9 @@ baseline = results[CASES.first[0]]
 
 puts "\nview_bind #{ViewBind::VERSION} — #{POSTS.size} posts, Rails #{Rails::VERSION::STRING}, " \
      "Ruby #{RUBY_VERSION}#{RubyVM::YJIT.enabled? ? " +YJIT" : ""}"
+puts "env=#{Rails.env}  eager_load=#{Rails.application.config.eager_load}  " \
+     "cache_template_loading=#{ActionView::Resolver.caching?}  " \
+     "reloading=#{Rails.application.config.enable_reloading}"
 puts "#{R} rounds x #{N} full requests, interleaved, best round per case\n\n"
 printf("  %-30s %10s %8s %12s %10s %10s\n", "", "ms", "gc ms", "objects", "renders", "vs base")
 CASES.each do |label, path|

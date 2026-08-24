@@ -79,17 +79,35 @@ sidebar with widgets and a footer. Four routes, **byte-identical HTML**, differe
 $ RAILS_ENV=production bundle exec rake bench
 
 view_bind 0.1.0 — 200 posts, Rails 8.1.3.1, Ruby 3.4.5 +YJIT
+env=production  eager_load=true  cache_template_loading=true  reloading=false
 7 rounds x 20 full requests, interleaved, best round per case
 
                                          ms    gc ms      objects    renders    vs base
-  render everywhere (baseline)        9.166     0.95       61 527       2230      1.00x
-  bind_render in the view             2.650     0.30       17 500         30      3.52x
-  bind_render in the layout           9.073     1.00       60 931       2201      1.01x
-  bind_render in both                 2.607     0.25       16 897          1      3.64x
+  render everywhere (baseline)       12.729     1.55       61 527       2230      1.00x
+  bind_render in the view             3.721     0.45       17 500         30      3.52x
+  bind_render in the layout          12.047     1.45       60 931       2201      1.01x
+  bind_render in both                 3.618     0.50       16 897          1      3.64x
 ```
 
 Read the object counts: they are exact and do not move with machine load, while milliseconds
 swing with whatever else the machine is doing.
+
+### Measure in production, not in development
+
+The same benchmark under `RAILS_ENV=development`:
+
+```
+env=development  eager_load=false  cache_template_loading=false  reloading=true
+
+  render everywhere (baseline)       11.584     1.40       61 680       2230      1.00x
+  bind_render in the view             4.521     0.70       33 662         30      1.83x
+  bind_render in both                 4.360     0.65       33 280          1      1.85x
+```
+
+Half the win: 1.83x instead of 3.52x. In development the lookup cache is bypassed so that
+editing a partial takes effect without a restart, which means every call re-resolves the
+template — 33 662 objects instead of 17 500. That is the correct trade, but do not judge the
+gem by what you see while clicking around `rails s`.
 
 **The layout is not where your time goes.** Converting only the layout — header, nav, flashes,
 sidebar, footer, about 29 render calls — is worth 1.01x. Converting the view, where a partial

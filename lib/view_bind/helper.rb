@@ -17,7 +17,7 @@ module ViewBind
       bound = ViewBind.bound_for(self, path, locals.keys)
       # Strict-locals partials go through Template#render, which owns the argument checking
       # and the StrictLocalsError message; everything else calls the compiled method.
-      if bound.strict
+      if bound.slow
         bound.template.render(self, locals, output_buffer)
       else
         bind_run(bound, locals, output_buffer)
@@ -59,7 +59,7 @@ module ViewBind
       collection.each do |item|
         locals[as]      = item
         locals[counter] = partial_iteration.index
-        if bound.strict
+        if bound.slow
           bound.template.render(self, locals, buffer, implicit_locals: [counter, iteration])
         else
           bind_run(bound, locals, buffer)

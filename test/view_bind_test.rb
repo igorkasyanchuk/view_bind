@@ -97,6 +97,23 @@ class ViewBindTest < Minitest::Test
     assert_same before_buffer, v.output_buffer
   end
 
+  # Cached bindings hold a method compiled into the view class ActionView keeps in
+  # DetailsKey. Clearing DetailsKey replaces that class and drops every details_key, so the
+  # cache must miss and rebuild rather than call a method the new class does not have.
+  # Stock `render` depends on the same invariant.
+  def test_rebuilds_after_details_key_is_cleared
+    warm = view
+    warm.instance_eval { bind_render "fixtures/leaf", word: "warm" }
+    before_class = warm.class
+
+    ActionView::LookupContext::DetailsKey.clear
+
+    after = view
+    refute_equal before_class, after.class
+    after.instance_eval { bind_render "fixtures/leaf", word: "after" }
+    assert_equal "<i>after</i>", squish(after.output_buffer)
+  end
+
   def test_missing_partial_raises_missing_template
     v = view
     assert_raises(ActionView::MissingTemplate) { v.instance_eval { bind_render "fixtures/nope" } }

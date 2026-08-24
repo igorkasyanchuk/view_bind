@@ -17,16 +17,24 @@ require_relative "view_bind/railtie" if defined?(Rails::Railtie)
 #
 # Nothing here requires ActionView at load time: the gem may be required before Rails.
 module ViewBind
-  # A resolved partial: the template, the name of the method Rails compiled it into, and
-  # whether it declares strict locals (those go back through Template#render, which owns the
-  # argument checking and its error message).
-  Bound = Struct.new(:template, :method_name, :strict)
+  # A resolved partial. `slow` means render it through ActionView::Template#render rather
+  # than by calling its compiled method: strict-locals partials (Template#render owns the
+  # argument checking and its error message) and any Rails whose internals this gem cannot
+  # reach.
+  Bound = Struct.new(:template, :method_name, :slow)
 
-  # details_key => Concurrent::Map(virtual path => [[locals keys, Bound], ...])
+  # details_key => virtual path => [[locals keys, Bound], ...]
   #
-  # Two levels of map and a tiny array scan, rather than one map keyed by a composite array:
-  # a hit then allocates nothing at all. details_key covers formats, locale and variants;
-  # leaving it out means the first request decides which locale every later request gets.
+  # Nested maps rather than one map keyed by a composite array: a hit allocates nothing.
+  # details_key covers formats, locale and variants.
+  #
+  # A Bound holds the name of a method compiled into one view class's compiled method
+  # container, which is safe because Rails maintains exactly one: ActionView caches
+  # `DetailsKey.view_context_class`, and `DetailsKey.clear` drops that class, the resolver
+  # caches and every details_key together (lookup_context.rb). A new container therefore
+  # always arrives with new details keys, which miss this cache and rebuild. Stock `render`
+  # relies on the same invariant -- a Template compiles once, and calling it from a second
+  # container raises NoMethodError there too.
   CACHE = Concurrent::Map.new
 
   class << self
@@ -40,8 +48,23 @@ module ViewBind
       entries&.each { |keys_for_entry, bound| return bound if keys_for_entry == keys }
 
       build(view, path, keys).tap do |bound|
-        # Copy on write: readers always see a complete array, whatever the thread.
-        by_path[path] = (entries || []) + [[keys, bound]]
+        # compute is atomic: two threads first-rendering the same partial with different
+        # locals cannot lose each other's entry.
+        by_path.compute(path) { |existing| (existing || []) + [[keys, bound]] }
+      end
+    end
+
+    # The map for this view's container and lookup details, memoised on the view itself: a
+    # request renders hundreds of partials through the same pair, and re-deriving it per call
+    # costs more than the array scan it guards. Compared by identity -- a single view can
+    # switch formats or variants part-way through a render.
+    def bindings_for(view)
+      details_key = view.lookup_context.details_key
+      cached      = view.instance_variable_get(:@__view_bind_bindings)
+      return cached[1] if cached && cached[0].equal?(details_key)
+
+      CACHE.fetch_or_store(details_key) { Concurrent::Map.new }.tap do |map|
+        view.instance_variable_set(:@__view_bind_bindings, [details_key, map])
       end
     end
 
@@ -52,17 +75,15 @@ module ViewBind
       CACHE.clear
     end
 
-    # The map for this view's current lookup details, memoised on the view itself: a request
-    # renders hundreds of partials through the same details_key, and re-deriving it per call
-    # costs more than the array scan it guards. Re-checked by identity, because a single view
-    # can switch formats or variants part-way through a render.
-    def bindings_for(view)
-      details_key = view.lookup_context.details_key
-      cached = view.instance_variable_get(:@__view_bind_bindings)
-      return cached[1] if cached && cached[0].equal?(details_key)
+    # The fast path calls three of ActionView::Template's :nodoc: methods. If a future Rails
+    # renames one, every partial quietly goes back through Template#render instead of
+    # raising NoMethodError on the first request after the upgrade.
+    def fast_path_available?
+      return @fast_path_available unless @fast_path_available.nil?
 
-      CACHE.fetch_or_store(details_key) { Concurrent::Map.new }.tap do |map|
-        view.instance_variable_set(:@__view_bind_bindings, [details_key, map])
+      @fast_path_available = %i[compile! method_name handle_render_error].all? do |method|
+        ActionView::Template.private_method_defined?(method) ||
+          ActionView::Template.method_defined?(method)
       end
     end
 
@@ -70,8 +91,10 @@ module ViewBind
 
     def build(view, path, keys)
       template = resolve(view, path, keys)
+      return Bound.new(template, nil, true) if template.strict_locals? || !fast_path_available?
+
       template.send(:compile!, view)
-      Bound.new(template, template.send(:method_name), template.strict_locals?)
+      Bound.new(template, template.send(:method_name), false)
     end
 
     def resolve(view, path, keys)

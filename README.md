@@ -36,7 +36,10 @@ partial. Three things keep it there:
   bookkeeping `ActionView::Base#_run` does — from inside the helper, which is included in the
   view class, so those are plain ivar assignments rather than `instance_variable_set`.
 
-Strict-locals partials go back through `Template#render`, which owns the argument checking.
+Strict-locals partials go back through `Template#render`, which owns the argument checking —
+as does everything, on any Rails whose `Template#compile!`, `#method_name` or
+`#handle_render_error` this gem cannot find. A rename in a future Rails costs you the speedup,
+not your application.
 
 ## Install
 

@@ -112,7 +112,17 @@ goes wrong:
 | Missing partial still raises `MissingTemplate` | `test_missing_partial_raises_missing_template` |
 
 In development, templates are re-resolved on every call (guarded on
-`ActionView::Resolver.caching?`), so editing a partial works without a restart.
+`ActionView::Resolver.caching?`), so editing a partial works without a restart — and Rails'
+debug error page is unchanged. A `NoMethodError` inside a bound partial reports:
+
+```
+Showing .../views/shared/_button.html.erb where line #3 raised:
+undefined method 'nonexistent_method' for an instance of String
+```
+
+with the partial's own source extracted around the failing line, exactly as `render` does.
+That is not a trick this gem plays: the partial is a normal compiled template, so
+`backtrace_locations`, `SourceMapLocation` and ErrorHighlight all resolve it the usual way.
 
 ## Limitations
 

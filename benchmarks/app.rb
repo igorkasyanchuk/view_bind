@@ -30,14 +30,17 @@ end.freeze
 
 class BenchApp < Rails::Application
   config.root = __dir__
-  config.eager_load = true
-  config.enable_reloading = false
+  # Benchmark like production; browse (rake dummy) like development, so template edits
+  # are picked up and errors render the debug page.
+  benchmarking = Rails.env.production?
+  config.eager_load = benchmarking
+  config.enable_reloading = !benchmarking
   config.secret_key_base = "benchmark" * 8
   config.logger = ActiveSupport::Logger.new(IO::NULL)
   config.log_level = :fatal
   config.hosts.clear
   config.consider_all_requests_local = true
-  config.action_view.cache_template_loading = true
+  config.action_view.cache_template_loading = benchmarking
   config.paths["app/views"] = [File.expand_path("views", __dir__)]
   config.middleware.delete ActionDispatch::DebugExceptions if Rails.env.production?
 

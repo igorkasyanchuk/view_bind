@@ -3,5 +3,6 @@
   <%= bind_render "posts/author_bound", post: post %>
   <p class="card-body"><%= post.excerpt %></p>
   <%= bind_render "posts/tags_bound", post: post %>
+  <%= bind_render "posts/ownership_bound" %>
   <%= bind_render "posts/actions_bound", post: post %>
 </article>

@@ -72,8 +72,9 @@ Both helpers return `nil` and write into the buffer, so `<%= %>` appends nothing
 ## Benchmark
 
 A dummy app with a realistic tree — layout → header → nav → nav\_item, a 200-item card
-collection whose cards render an author block, a tag collection and three buttons, plus a
-sidebar with widgets and a footer. Four routes, **byte-identical HTML**, different call styles.
+collection whose cards render an author block, a tag collection, an ownership block that reads
+instance variables, a nested badge and three buttons, plus a sidebar with widgets and a footer.
+Four routes, **byte-identical HTML**, different call styles.
 
 ```
 $ RAILS_ENV=production bundle exec rake bench
@@ -83,10 +84,10 @@ env=production  eager_load=true  cache_template_loading=true  reloading=false
 7 rounds x 20 full requests, interleaved, best round per case
 
                                          ms    gc ms      objects    renders    vs base
-  render everywhere (baseline)       12.729     1.55       61 527       2230      1.00x
-  bind_render in the view             3.721     0.45       17 500         30      3.52x
-  bind_render in the layout          12.047     1.45       60 931       2201      1.01x
-  bind_render in both                 3.618     0.50       16 897          1      3.64x
+  render everywhere (baseline)       14.814     1.70       74 527       2630      1.00x
+  bind_render in the view             4.131     0.55       20 900         30      3.57x
+  bind_render in the layout          14.120     1.70       73 931       2601      1.01x
+  bind_render in both                 3.847     0.55       20 297          1      3.67x
 ```
 
 Read the object counts: they are exact and do not move with machine load, while milliseconds
@@ -99,14 +100,14 @@ The same benchmark under `RAILS_ENV=development`:
 ```
 env=development  eager_load=false  cache_template_loading=false  reloading=true
 
-  render everywhere (baseline)       11.584     1.40       61 680       2230      1.00x
-  bind_render in the view             4.521     0.70       33 662         30      1.83x
-  bind_render in both                 4.360     0.65       33 280          1      1.85x
+  render everywhere (baseline)       15.164     1.85       74 689       2630      1.00x
+  bind_render in the view             5.502     0.85       41 072         30      1.82x
+  bind_render in both                 6.028     0.90       40 690          1      1.84x
 ```
 
-Half the win: 1.83x instead of 3.52x. In development the lookup cache is bypassed so that
+Half the win: 1.82x instead of 3.57x. In development the lookup cache is bypassed so that
 editing a partial takes effect without a restart, which means every call re-resolves the
-template — 33 662 objects instead of 17 500. That is the correct trade, but do not judge the
+template — 41 072 objects instead of 20 900. That is the correct trade, but do not judge the
 gem by what you see while clicking around `rails s`.
 
 **The layout is not where your time goes.** Converting only the layout — header, nav, flashes,
@@ -127,6 +128,7 @@ goes wrong:
 | Backtraces naming the real file and line | `test_backtrace_points_at_the_partial` |
 | Fragment cache digests busting on edits | `test_dependency_tracking_busts_fragment_digests` |
 | Works in a layout, and nested | `test_works_in_a_layout_and_nested_partials` |
+| Instance variables in nested partials | `test_instance_variables_reach_nested_partials` |
 | Missing partial still raises `MissingTemplate` | `test_missing_partial_raises_missing_template` |
 
 In development, templates are re-resolved on every call (guarded on

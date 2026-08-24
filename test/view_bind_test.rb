@@ -49,6 +49,28 @@ class ViewBindTest < Minitest::Test
     assert_equal "<span>bonjour</span>", squish(fr.output_buffer)
   end
 
+  # Instance variables come from the view context, which is what bind_render renders into,
+  # so they resolve in bound partials and in partials bound from inside them.
+  def test_instance_variables_reach_nested_partials
+    v = view
+    v.instance_variable_set(:@who, "ada")
+    v.instance_variable_set(:@depth, 2)
+    v.instance_eval { bind_render "fixtures/ivar_outer" }
+    assert_equal "<div>ada<em>ADA-2</em></div>", v.output_buffer.to_s.gsub(/\s+/, "")
+  end
+
+  def test_instance_variables_match_render_exactly
+    bound = view
+    bound.instance_variable_set(:@who, "grace")
+    bound.instance_variable_set(:@depth, 7)
+    bound.instance_eval { bind_render "fixtures/ivar_outer" }
+
+    plain = view
+    plain.instance_variable_set(:@who, "grace")
+    plain.instance_variable_set(:@depth, 7)
+    assert_equal squish(plain.render(partial: "fixtures/ivar_outer")), squish(bound.output_buffer)
+  end
+
   def test_missing_partial_raises_missing_template
     v = view
     assert_raises(ActionView::MissingTemplate) { v.instance_eval { bind_render "fixtures/nope" } }

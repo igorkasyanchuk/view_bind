@@ -7,3 +7,5 @@ gemspec
 gem "rails", ">= 7.1"
 gem "rake"
 gem "minitest"
+gem "rackup"
+gem "puma"

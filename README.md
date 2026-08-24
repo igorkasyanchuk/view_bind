@@ -134,12 +134,33 @@ partial is called once per row and there are many rows. Before that, check wheth
 loading ActiveRecord objects you only read from (`pluck` is usually a bigger win) or rendering
 more rows than anyone will look at.
 
+## The dummy app
+
+`benchmarks/app.rb` is a single-file Rails application — four routes, a controller, 200
+in-memory posts and 29 ERB templates under `benchmarks/views/`. The benchmark drives it
+in-process, and you can also serve it and click through:
+
+```bash
+bundle exec rake dummy   # http://localhost:9292
+```
+
+| route | layout | view |
+| --- | --- | --- |
+| `/` | `render` | `render` |
+| `/bind_view` | `render` | `bind_render` |
+| `/bind_layout` | `bind_render` | `render` |
+| `/bind_both` | `bind_render` | `bind_render` |
+
+All four return byte-identical HTML. It ships no CSS on purpose: it exists to be measured,
+not to look like anything.
+
 ## Development
 
 ```bash
 bin/setup
 bundle exec rake test    # 11 tests
 bundle exec rake bench   # the table above
+bundle exec rake dummy   # browse the dummy app
 ```
 
 ## License

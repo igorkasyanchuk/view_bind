@@ -13,4 +13,9 @@ task :bench do
   sh({ "RAILS_ENV" => "production" }, "ruby benchmarks/run.rb")
 end
 
+desc "Serve the dummy app at http://localhost:9292 (routes: / /bind_view /bind_layout /bind_both)"
+task :dummy do
+  sh({ "RAILS_ENV" => "development" }, "rackup -p 9292")
+end
+
 task default: :test

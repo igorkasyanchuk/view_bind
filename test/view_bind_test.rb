@@ -5,7 +5,16 @@ require_relative "test_helper"
 class ViewBindTest < Minitest::Test
   include ViewHelpers
 
-  def setup = ViewBind.clear_cache
+  def setup
+    ViewBind.clear_cache
+    I18n.locale = :en
+  end
+
+  # ActionView::LookupContext#locale= writes I18n.locale process-wide, so a test that looks up
+  # a French partial leaves every later test in French unless this runs.
+  def teardown
+    I18n.locale = :en
+  end
 
   def test_matches_what_render_produces
     v = view

@@ -22,6 +22,7 @@ module ViewBind
       # handler so its dependencies are still reported. Another gem's custom ERB tracker
       # must not disappear just because this gem loaded after it.
       def register_for(extension)
+        require "action_view/dependency_tracker"
         handler = ActionView::Template.handler_for_extension(extension)
         @wrapped[handler] ||= existing_tracker_for(handler)
         ActionView::DependencyTracker.register_tracker(extension, self)
@@ -36,6 +37,10 @@ module ViewBind
       # Rails' default for ERB. Named `:ruby` (AST) from Rails 8; earlier versions only ship
       # the regex tracker, and ActionView.render_tracker does not exist there at all.
       def default_tracker
+        # Reachable before the railtie's on_load hook has fired -- an app with eager_load
+        # off has not necessarily touched ActionView::DependencyTracker yet.
+        require "action_view/dependency_tracker"
+
         if ActionView.respond_to?(:render_tracker) && ActionView.render_tracker == :ruby
           ActionView::DependencyTracker::RubyTracker
         else

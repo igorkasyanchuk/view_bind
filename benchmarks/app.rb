@@ -88,6 +88,7 @@ class PagesController < ActionController::Base
     @top_categories  = Post.group(:category).order(count_all: :desc).limit(5).count
     @busiest_authors = Author.joins(:posts).group("authors.name").order(count_all: :desc).limit(5).count
     @recent_comments = Comment.includes(:post).order(id: :desc).limit(8).to_a
+    @top_monthly     = Post.includes(:author).where(created_at: 30.days.ago..).order(views: :desc).limit(6).to_a
     @totals          = { posts: Post.count, comments: Comment.count }
   end
 
@@ -147,7 +148,8 @@ Post.insert_all(
       excerpt: "Body text for post #{i}. " * 4,
       views: i * 7 % 991,
       tag_list: TAG_POOL.rotate(i).first(3).join(","),
-      created_at: Time.now, updated_at: Time.now }
+      # spread over six months, so "top posts this month" selects a real slice
+      created_at: Time.now - (i % 180) * 86_400, updated_at: Time.now }
   end
 )
 

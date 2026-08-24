@@ -8,6 +8,7 @@
     <h4>Busiest authors</h4>
     <ul><% @busiest_authors.each do |name, total| %><%= bind_render "shared/author_row", name: name, total: total %><% end %></ul>
   </section>
+  <%= bind_render "shared/top_monthly_bound" %>
   <section class="widget">
     <h4>Recent comments</h4>
     <ul><%= bind_render_each "shared/comment_row", @recent_comments, as: :comment %></ul>

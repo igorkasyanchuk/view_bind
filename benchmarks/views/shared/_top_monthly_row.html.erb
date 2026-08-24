@@ -1,0 +1,5 @@
+<li class="ranked-row">
+  <%= render "shared/avatar", name: post.author.name %>
+  <span class="k"><a href="/posts/<%= post.id %>"><%= truncate(post.title, length: 28) %></a></span>
+  <span class="v"><%= post.views %> views</span>
+</li>

@@ -108,8 +108,18 @@ The same benchmark, same rows, same HTML, only the backend changed — five runs
 
 | backend | baseline | bind_render in both | speedup |
 | --- | ---: | ---: | ---: |
-| SQLite, in memory | 13.37 ms | 5.07 ms | **2.69x** |
-| PostgreSQL 17, localhost | 20.14 ms | 11.68 ms | **1.75x** |
+| SQLite, file | 14.10 ms | 5.45 ms | **2.59x** |
+| PostgreSQL 17, localhost | 21.68 ms | 13.24 ms | **1.65x** |
+
+PostgreSQL, five runs of five rounds, 10 queries per request:
+
+```
+  case                            min ms   median     max    objects  renders queries  obj x  time x
+  render everywhere (baseline)     20.10    21.68   22.07      83 280     2662      10  1.00x   1.00x
+  bind_render in the view          13.26    13.66   14.10      29 653       62      10  2.81x   1.59x
+  bind_render in the layout        21.04    21.41   22.29      82 142     2602      10  1.01x   1.00x
+  bind_render in both               9.55    13.24   13.54      28 509        2      10  2.92x   1.65x
+```
 
 Eight queries over a socket cost about 7 ms that every route pays equally, so the view savings
 are diluted. Over a network to a real database server it compresses further. Run

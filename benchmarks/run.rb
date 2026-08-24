@@ -77,7 +77,8 @@ CASES.each do |label, path|
          baseline[:objects].to_f / r[:objects], baseline[:ms] / r[:ms])
 end
 
-puts "\n  #{Post.count} posts / #{Comment.count} comments in SQLite, #{POSTS_PER_PAGE} rendered per request."
+puts "\n  #{Post.count} posts / #{Comment.count} comments in #{ActiveRecord::Base.connection.adapter_name}, " \
+     "#{POSTS_PER_PAGE} rendered per request."
 puts "  HTML is byte-identical across all four routes."
 puts "  obj x is the allocation ratio, time x the wall-clock ratio -- they differ because the"
 puts "  8 queries and their ActiveRecord objects cost the same on every route."

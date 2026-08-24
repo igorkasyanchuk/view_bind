@@ -106,10 +106,16 @@ env=production  eager_load=true  cache_template_loading=true  reloading=false
 
 The same benchmark, same rows, same HTML, only the backend changed — five runs each:
 
+Same code, same 10 queries, same HTML — five runs of five rounds on each backend:
+
 | backend | baseline | bind_render in both | speedup |
 | --- | ---: | ---: | ---: |
-| SQLite, file | 14.10 ms | 5.45 ms | **2.59x** |
+| SQLite, file | 14.41 ms | 5.79 ms | **2.49x** |
 | PostgreSQL 17, localhost | 21.68 ms | 13.24 ms | **1.65x** |
+
+Postgres adds a flat **+7.3 to +7.5 ms to every route** — baseline and bound alike — so the
+same saved render work is a smaller fraction of a bigger number. Allocations tell the story
+that does not move: 2.96x on SQLite, 2.92x on Postgres.
 
 PostgreSQL, five runs of five rounds, 10 queries per request:
 

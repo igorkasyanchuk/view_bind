@@ -20,7 +20,9 @@ default: &default
 <% else %>
 default: &default
   adapter: sqlite3
-  database: ":memory:"
+  # A file, not ":memory:": every connection in a pool opens its own private in-memory
+  # database, so a threaded server would serve requests against empty tables.
+  database: <%= File.expand_path("../tmp/bench.sqlite3", __dir__) %>
   pool: 5
 <% end %>
 

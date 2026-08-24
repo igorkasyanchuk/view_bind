@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-  <head><title>ViewBind Bench</title></head>
+  <head><title>ViewBind Bench</title><%= render "layouts/style" %></head>
   <body>
     <%= render "shared/header", current_path: @current_path, user: @user %>
     <% @flashes.each do |level, message| %><%= render "shared/flash", level: level, message: message %><% end %>

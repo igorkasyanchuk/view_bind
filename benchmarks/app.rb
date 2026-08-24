@@ -84,12 +84,15 @@ class PagesController < ActionController::Base
 
   # A page's worth of queries, the way a real index action accumulates them.
   def load_page_data
-    @posts           = Post.includes(:author).order(id: :desc).limit(POSTS_PER_PAGE).to_a
+    @posts           = Post.includes(:author).order(id: :desc).limit(per_page).to_a
     @top_categories  = Post.group(:category).order(count_all: :desc).limit(5).count
     @busiest_authors = Author.joins(:posts).group("authors.name").order(count_all: :desc).limit(5).count
     @recent_comments = Comment.includes(:post).order(id: :desc).limit(8).to_a
     @totals          = { posts: Post.count, comments: Comment.count }
   end
+
+  # POSTS_PER_PAGE by default; ?per=6 keeps the whole page on one screen for a screenshot.
+  def per_page = params[:per].present? ? params[:per].to_i.clamp(1, 500) : POSTS_PER_PAGE
 
   def default_render = nil
 end

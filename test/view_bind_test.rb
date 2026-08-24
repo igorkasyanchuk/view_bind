@@ -114,6 +114,19 @@ class ViewBindTest < Minitest::Test
     assert_equal "<i>after</i>", squish(after.output_buffer)
   end
 
+  # The collection loop hoists the view bookkeeping outside the iteration, so it has to put
+  # it back even when an item raises part-way through.
+  def test_collection_restores_view_state_after_an_error
+    v = view
+    before_buffer = v.output_buffer
+    error = assert_raises(ActionView::Template::Error) do
+      v.instance_eval { bind_render_each "fixtures/boom_item", %w[a b c], as: :item }
+    end
+    assert_includes (error.cause || error).backtrace.first, "_boom_item.html.erb"
+    assert_nil v.instance_variable_get(:@current_template)
+    assert_same before_buffer, v.output_buffer
+  end
+
   def test_missing_partial_raises_missing_template
     v = view
     assert_raises(ActionView::MissingTemplate) { v.instance_eval { bind_render "fixtures/nope" } }

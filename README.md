@@ -28,13 +28,19 @@ lookup keyed by details and locals, an `ActiveSupport::Notifications` event, a p
 method, writing straight into the current buffer: **1.4 µs and 6 objects per call** on a leaf
 partial. Three things keep it there:
 
-- a two-level cache (lookup details, then virtual path) whose hit allocates nothing, rather
-  than a single map keyed by a composite array that has to be built and hashed every call;
+- a two-level cache (lookup details, then virtual path) whose hit allocates nothing: the
+  cached locals shape is compared against the locals hash in place, so not even `locals.keys`
+  is built;
 - the map for the current lookup details is memoised on the view, so a request derives it
   once instead of once per partial;
 - the compiled method is called directly, with the same `@current_template` / `@output_buffer`
   bookkeeping `ActionView::Base#_run` does — from inside the helper, which is included in the
   view class, so those are plain ivar assignments rather than `instance_variable_set`.
+
+`bind_render_each` goes further: every item renders the same template, so the view bookkeeping
+is saved and restored once for the whole collection rather than once per item. On a 20-item
+collection that is **1.06 µs and 3.6 objects per item, against 2.77 µs and 11.8 for Rails'
+own collection renderer.**
 
 Strict-locals partials go back through `Template#render`, which owns the argument checking —
 as does everything, on any Rails whose `Template#compile!`, `#method_name` or
@@ -111,14 +117,14 @@ env=production  eager_load=true  cache_template_loading=true  reloading=false
 counters: attached only for the inspection pass
 
                                          ms    gc ms      objects   renders  queries     obj x    time x
-  render everywhere (baseline)       11.680     1.25       68 342      2662       10     1.00x     1.00x
-  bind_render in the view             4.630     0.40       23 523        62       10     2.91x     2.49x
-  bind_render in the layout          11.580     1.25       67 353      2601       10     1.01x     1.02x
-  bind_render in both                 4.720     0.35       22 526         1       10     3.03x     2.50x
+  render everywhere (baseline)       11.250     1.25       68 342      2662       10     1.00x     1.00x
+  bind_render in the view             4.450     0.35       21 723        62       10     3.15x     2.52x
+  bind_render in the layout          11.160     1.20       67 316      2601       10     1.02x     1.01x
+  bind_render in both                 4.420     0.35       20 689         1       10     3.30x     2.57x
 ```
 
-Medians of five runs of five rounds. 2 662 render calls collapse to 1, 45 816 fewer objects
-per request, and the page comes back in 40% of the time.
+Medians of five runs of five rounds. 2 662 render calls collapse to 1, 47 653 fewer objects
+per request, and the page comes back in 39% of the time.
 
 ### The database decides how much of this you keep
 
@@ -126,8 +132,8 @@ Same code, same 10 queries, same HTML — only the backend changed:
 
 | backend | baseline | bind_render in both | speedup |
 | --- | ---: | ---: | ---: |
-| SQLite, file | 11.68 ms | 4.72 ms | **2.50x** |
-| PostgreSQL 17, localhost | 18.41 ms | 11.72 ms | **1.57x** |
+| SQLite, file | 11.25 ms | 4.42 ms | **2.57x** |
+| PostgreSQL 17, localhost | 18.72 ms | 11.86 ms | **1.58x** |
 
 Postgres adds a flat ~7 ms to every route, baseline and bound alike, so the same saved work is
 a smaller share of a bigger number. The allocation ratio barely moves (3.03x vs 2.98x), which

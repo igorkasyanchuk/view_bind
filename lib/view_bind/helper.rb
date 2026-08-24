@@ -14,7 +14,7 @@ module ViewBind
     def bind_render(path, **locals, &block)
       raise ArgumentError, "bind_render does not support a block; use render for the block form" if block
 
-      bound = ViewBind.bound_for(self, path, locals.keys)
+      bound = ViewBind.bound_for_locals(self, path, locals)
       # Strict-locals partials go through Template#render, which owns the argument checking
       # and the StrictLocalsError message; everything else calls the compiled method.
       if bound.slow
@@ -56,15 +56,38 @@ module ViewBind
       partial_iteration = ActionView::PartialIteration.new(collection.size)
       locals[iteration] = partial_iteration
 
-      collection.each do |item|
-        locals[as]      = item
-        locals[counter] = partial_iteration.index
-        if bound.slow
+      if bound.slow
+        collection.each do |item|
+          locals[as]      = item
+          locals[counter] = partial_iteration.index
           bound.template.render(self, locals, buffer, implicit_locals: [counter, iteration])
-        else
-          bind_run(bound, locals, buffer)
+          partial_iteration.iterate!
         end
-        partial_iteration.iterate!
+        return nil
+      end
+
+      # Every item renders the same template, so the view bookkeeping is saved and restored
+      # once for the whole collection instead of once per item.
+      previous_buffer   = @output_buffer
+      previous_path     = @virtual_path
+      previous_template = @current_template
+      @current_template = bound.template
+      @output_buffer    = buffer
+      method_name       = bound.method_name
+
+      begin
+        collection.each do |item|
+          locals[as]      = item
+          locals[counter] = partial_iteration.index
+          public_send(method_name, locals, buffer)
+          partial_iteration.iterate!
+        end
+      rescue StandardError => e
+        bound.template.send(:handle_render_error, self, e)
+      ensure
+        @output_buffer    = previous_buffer
+        @virtual_path     = previous_path
+        @current_template = previous_template
       end
       nil
     end

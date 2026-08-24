@@ -54,6 +54,20 @@ module ViewBind
       end
     end
 
+    # Same lookup, taking the locals hash instead of its keys: a hit compares against the
+    # cached key array in place, so the common path allocates nothing at all. `keys` is only
+    # materialised when the partial has to be resolved.
+    def bound_for_locals(view, path, locals)
+      return build(view, path, locals.keys) unless ActionView::Resolver.caching?
+
+      entries = bindings_for(view)[path]
+      entries&.each do |keys, bound|
+        return bound if keys.size == locals.size && keys.all? { |key| locals.key?(key) }
+      end
+
+      bound_for(view, path, locals.keys)
+    end
+
     # The map for this view's container and lookup details, memoised on the view itself: a
     # request renders hundreds of partials through the same pair, and re-deriving it per call
     # costs more than the array scan it guards. Compared by identity -- a single view can

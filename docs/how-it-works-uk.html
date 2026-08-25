@@ -366,6 +366,49 @@ footer { margin-top:70px; padding-top:26px; border-top:1px solid var(--line); co
   </div>
 </section>
 
+<section>
+  <h2><span class="idx">07</span>Як побачити час рендерингу</h2>
+  <p class="intro">Прив’язані партіали не кидають подій <code>render_partial.action_view</code> —
+  це частина виграшу. Разом із подіями зникають і рядки <code>Rendered …</code> у логах: на
+  сторінці бенчмарку їх стає <b>2 замість 65</b>. Підсумковий час у
+  <code>Completed … (Views: 16.9ms)</code> лишається на місці, губиться саме розбивка.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 250" role="img" aria-label="Замість 65 рядків Rendered у логах гем виводить один підсумок на реквест">
+      <text x="20" y="26" font-size="12.5" font-weight="700" fill="currentColor">звичайний render — 65 рядків на реквест</text>
+      <g font-family="JetBrains Mono, monospace" font-size="10.5" fill="currentColor" opacity=".6">
+        <text x="20" y="48">Rendered shared/_avatar.html.erb (Duration: 1.5ms)</text>
+        <text x="20" y="64">Rendered posts/_author.html.erb (Duration: 2.8ms)</text>
+        <text x="20" y="80">Rendered collection of shared/_tag.html.erb [3 times] (0.9ms)</text>
+        <text x="20" y="96">Rendered posts/_tags.html.erb (Duration: 1.8ms)</text>
+        <text x="20" y="112">Rendered shared/_button.html.erb (Duration: 0.5ms)</text>
+        <text x="20" y="128">… ще 60 рядків</text>
+      </g>
+
+      <text x="480" y="26" font-size="12.5" font-weight="700" fill="#157a52">ViewBind.profile = true — один підсумок</text>
+      <rect x="480" y="34" width="400" height="112" rx="8" fill="none" stroke="#157a52" stroke-width="1.6"/>
+      <g font-family="JetBrains Mono, monospace" font-size="10.5" fill="currentColor">
+        <text x="494" y="54" fill="#157a52" font-weight="700">ViewBind: 321 calls, 35.91ms</text>
+        <text x="494" y="72">  posts/card_bound      x20   17.68ms</text>
+        <text x="494" y="88">  posts/author_bound    x20    3.10ms</text>
+        <text x="494" y="104">  shared/sidebar_bound  x1     2.76ms</text>
+        <text x="494" y="120">  shared/button         x61    1.06ms</text>
+        <text x="494" y="136" opacity=".6">  … топ-10 за часом</text>
+      </g>
+
+      <rect x="20" y="168" width="860" height="62" rx="10" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".5"/>
+      <text x="36" y="190" font-size="12" fill="currentColor" opacity=".8">Вимкнений профайлер коштує одну перевірку булевого прапорця: 1.07 мкс на виклик.</text>
+      <text x="36" y="210" font-size="12" fill="currentColor" opacity=".8">Увімкнений додає два читання годинника: 1.33 мкс. Це інструмент для development.</text>
+    </svg>
+    <figcaption><b>Час вкладений так само, як у логах Rails:</b> <code>posts/card_bound</code>
+    включає все, що витратили його діти. Колекція рахується як N викликів, а не один — тому
+    <code>shared/button ×61</code>, а не <code>×1</code>.</figcaption>
+  </figure>
+
+  <div class="code-label">config/environments/development.rb</div>
+<pre>ViewBind.profile = <span class="k">true</span></pre>
+</section>
+
 <footer>
   Заміри: Rails 8.1.3.1, Ruby 3.4.5 з YJIT, production, SQLite (де не вказано інше). Кількість
   об’єктів точна; мілісекунди залежать від навантаження машини. Окремий документ про

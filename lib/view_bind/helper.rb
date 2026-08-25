@@ -57,48 +57,11 @@ module ViewBind
     # helper is still correct, because a request has only one of each.
     def bind_render_memo(path, **locals, &block)
       raise ArgumentError, "bind_render_memo does not support a block" if block
+      # The key walk is part of what a memo call costs -- that is the number worth comparing
+      # against the render it replaces -- so it happens inside the measurement.
+      return (memo_render(path, locals); nil) unless ViewBind.profile?
 
-      values = locals.values
-      # No block, no intermediate array: the type test is on the hot path of every call.
-      i = 0
-      while i < values.size
-        case values[i]
-        when String, Symbol, Numeric, true, false, nil then i += 1
-        else return bind_render(path, **locals)
-        end
-      end
-
-      # Keyed by lookup details, then path, then the locals names, then their values.
-      #
-      # details_key covers formats, locale and variants: without it, a partial memoised
-      # before `lookup_context.variants = [:phone]` or inside `I18n.with_locale` keeps
-      # serving the markup it was first rendered with. The names matter too --
-      # `primary: "New"` and `secondary: "New"` are different renderings of one partial.
-      #
-      # Keying this way rather than by the resolved binding means a hit does not resolve the
-      # template at all, and behaves identically whether or not templates are cached, so a
-      # partial with a side effect cannot behave one way in development and another in
-      # production.
-      memo     = (@__view_bind_memo ||= {}.compare_by_identity)
-      by_path  = (memo[lookup_context.details_key] ||= {})
-      by_shape = (by_path[path] ||= {})
-      by_value = (by_shape[locals.keys] ||= {})
-      # One local is overwhelmingly the common case, and a bare value keys far cheaper than
-      # an array: no allocation, no array hashing.
-      key = values.size == 1 ? values[0] : values
-
-      hit = by_value.key?(key)
-
-      # A method rather than a lambda: a block here would allocate on every call, profiling
-      # or not, and this is the hot path the memo exists to keep cheap.
-      html =
-        if ViewBind.profile?
-          ViewBind::Profiler.measure(path, memo_hits: hit ? 1 : 0) { memo_fetch(by_value, key, hit, path, locals) }
-        else
-          memo_fetch(by_value, key, hit, path, locals)
-        end
-
-      output_buffer << html
+      ViewBind::Profiler.measure_memo(path) { memo_render(path, locals) }
       nil
     end
 
@@ -172,6 +135,41 @@ module ViewBind
     end
 
     private
+
+    # Walks the memo, appends the markup and reports what happened: true for a hit, false for
+    # a miss, :delegated when the locals cannot be keyed on and the call went to bind_render,
+    # which measures itself.
+    def memo_render(path, locals)
+      values = locals.values
+      # No block, no intermediate array: the type test is on the hot path of every call.
+      i = 0
+      while i < values.size
+        case values[i]
+        when String, Symbol, Numeric, true, false, nil then i += 1
+        else
+          bind_render(path, **locals)
+          return :delegated
+        end
+      end
+
+      # Keyed by lookup details, then path, then the locals names, then their values.
+      #
+      # details_key covers formats, locale and variants: without it, a partial memoised
+      # before `lookup_context.variants = [:phone]` or inside `I18n.with_locale` keeps
+      # serving the markup it was first rendered with. The names matter too --
+      # `primary: "New"` and `secondary: "New"` are different renderings of one partial.
+      memo     = (@__view_bind_memo ||= {}.compare_by_identity)
+      by_path  = (memo[lookup_context.details_key] ||= {})
+      by_shape = (by_path[path] ||= {})
+      by_value = (by_shape[locals.keys] ||= {})
+      # One local is overwhelmingly the common case, and a bare value keys far cheaper than
+      # an array: no allocation, no array hashing.
+      key = values.size == 1 ? values[0] : values
+      hit = by_value.key?(key)
+
+      output_buffer << memo_fetch(by_value, key, hit, path, locals)
+      hit
+    end
 
     # Returns the memoised markup, rendering and storing it on a miss. Rendering goes through
     # the resolved binding rather than bind_render, so the profiler counts the call once.

@@ -302,6 +302,20 @@ class ViewBindTest < Minitest::Test
     ViewBind::Profiler.reset
   end
 
+  # A local the memo cannot key on is handed to bind_render, which measures itself. The memo
+  # must not record it again, or one render would show as two calls.
+  def test_profiler_counts_a_delegated_memo_call_once
+    ViewBind.profile = true
+    ViewBind::Profiler.reset
+    v = view
+    v.instance_eval { bind_render_memo "fixtures/leaf", word: ["not", "keyable"] }
+
+    assert_match(/ViewBind: 1 calls/, ViewBind::Profiler.summary)
+  ensure
+    ViewBind.profile = false
+    ViewBind::Profiler.reset
+  end
+
   def test_missing_partial_raises_missing_template
     v = view
     assert_raises(ActionView::MissingTemplate) { v.instance_eval { bind_render "fixtures/nope" } }

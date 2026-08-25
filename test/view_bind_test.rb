@@ -242,6 +242,7 @@ class ViewBindTest < Minitest::Test
   # Bound partials emit no render_partial events, so the profiler is the replacement for the
   # per-partial log lines. Off by default, and it must stay off unless asked.
   def test_profiler_is_off_by_default
+    ViewBind::Profiler.reset
     v = view
     3.times { v.instance_eval { bind_render "fixtures/leaf", word: "x" } }
     assert_nil ViewBind::Profiler.summary
@@ -249,6 +250,7 @@ class ViewBindTest < Minitest::Test
 
   def test_profiler_counts_calls_and_collections
     ViewBind.profile = true
+    ViewBind::Profiler.reset
     v = view
     2.times { v.instance_eval { bind_render "fixtures/leaf", word: "x" } }
     v.instance_eval { bind_render_each "fixtures/item", %w[a b c], as: :item }
@@ -257,9 +259,26 @@ class ViewBindTest < Minitest::Test
     assert_match(/ViewBind: 5 calls/, summary)
     assert_match(/fixtures\/leaf\s+x2/, summary)
     assert_match(/fixtures\/item\s+x3/, summary)
+    assert_equal summary, ViewBind::Profiler.summary, "summary must be a pure read"
   ensure
     ViewBind.profile = false
-    ViewBind::Profiler.flush
+    ViewBind::Profiler.reset
+  end
+
+  # A memo hit renders nothing, but it is still a call: reporting a partial used 600 times as
+  # x1 would hide exactly what the profiler exists to show.
+  def test_profiler_counts_memo_hits
+    ViewBind.profile = true
+    ViewBind::Profiler.reset
+    v = view
+    5.times { v.instance_eval { bind_render_memo "fixtures/leaf", word: "x" } }
+
+    summary = ViewBind::Profiler.summary
+    assert_match(/ViewBind: 5 calls/, summary)
+    assert_match(/\(4 memo\)/, summary)
+  ensure
+    ViewBind.profile = false
+    ViewBind::Profiler.reset
   end
 
   def test_missing_partial_raises_missing_template

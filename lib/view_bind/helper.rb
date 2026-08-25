@@ -84,13 +84,25 @@ module ViewBind
       # an array: no allocation, no array hashing.
       key = values.size == 1 ? values[0] : values
 
-      if by_value.key?(key)
+      profiling = ViewBind.profile?
+      started   = Process.clock_gettime(Process::CLOCK_MONOTONIC) if profiling
+      hit       = by_value.key?(key)
+
+      if hit
         html = by_value[key]
       else
+        # Render through the resolved binding rather than bind_render, so the profiler counts
+        # this call once here instead of once here and once inside.
+        bound = ViewBind.bound_for_locals(self, path, locals)
         # capture returns nil for a partial that renders nothing; store the empty buffer so
         # key? still reports a hit and it is not re-rendered on every call.
-        html = capture { bind_render(path, **locals) } || ActiveSupport::SafeBuffer.new
+        html = capture { render_bound(bound, locals) } || ActiveSupport::SafeBuffer.new
         by_value[key] = html if by_value.size < MEMO_LIMIT_PER_SHAPE
+      end
+
+      if profiling
+        ViewBind::Profiler.record(path, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started,
+                                  memo_hits: hit ? 1 : 0)
       end
 
       output_buffer << html
@@ -156,7 +168,7 @@ module ViewBind
         @current_template = previous_template
         if started
           ViewBind::Profiler.record(path, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started,
-                                    collection.size)
+                                    count: collection.size)
         end
       end
       nil

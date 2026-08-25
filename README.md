@@ -266,17 +266,21 @@ ViewBind.profile = true
 ```
 
 ```
-ViewBind: 321 calls, 35.91ms
-  posts/card_bound                   x20      17.68ms
-  posts/author_bound                 x20       3.10ms
-  shared/sidebar_bound               x1        2.76ms
-  posts/actions_bound                x20       2.72ms
-  shared/button                      x61       1.06ms
-  shared/tag                         x70       1.02ms
+ViewBind: 302 calls, 37.61ms
+  posts/card_memo                    x20      17.76ms
+  shared/sidebar_bound               x1        3.66ms
+  posts/author_bound                 x20       3.33ms
+  posts/ownership_bound              x20       1.80ms  (19 memo)
+  shared/button                      x61       1.70ms
 ```
 
 Sorted by time, top ten, one line per partial rather than one per render. Times nest exactly as
-Rails' own do: `posts/card_bound` includes everything its children spent.
+Rails' own do: `posts/card_memo` includes everything its children spent. `(19 memo)` counts the
+calls `bind_render_memo` served without rendering — the hit rate, which is the number worth
+checking before deciding whether memoisation earns its place.
+
+The store is cleared when an action starts as well as when it ends, so renders from a mailer or
+a job on the same thread cannot be attributed to the next request.
 
 Off by default. While off the cost is a single boolean test per call; switched on it adds two
 clock reads, about **0.26 µs per call** — fine for development, not something to leave on in

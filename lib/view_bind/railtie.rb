@@ -14,11 +14,16 @@ module ViewBind
 
       # One summary per request, in place of the per-partial lines bound partials no longer
       # produce. Subscribed once; does nothing while profiling is off.
+      ActiveSupport::Notifications.subscribe("start_processing.action_controller") do
+        ViewBind::Profiler.reset if ViewBind.profile?
+      end
+
       ActiveSupport::Notifications.subscribe("process_action.action_controller") do
         next unless ViewBind.profile?
 
         summary = ViewBind::Profiler.summary
         Rails.logger.info(summary) if summary
+        ViewBind::Profiler.reset
       end
 
       # A code reload rebuilds view classes and template caches; ours has to go with them.

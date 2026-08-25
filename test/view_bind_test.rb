@@ -180,7 +180,7 @@ class ViewBindTest < Minitest::Test
   def test_memo_records_a_partial_that_renders_nothing
     v = view
     2.times { v.instance_eval { bind_render_memo "fixtures/empty", word: "x" } }
-    entries = v.instance_variable_get(:@__view_bind_memo).values.first
+    entries = v.instance_variable_get(:@__view_bind_memo).values.first.values.first
     assert entries.key?("x"), "empty render was not memoised"
     refute_nil entries["x"]
     assert_equal "", squish(v.output_buffer)
@@ -193,16 +193,21 @@ class ViewBindTest < Minitest::Test
     end
   end
 
-  # With template caching off every call resolves a fresh binding, so an identity-keyed memo
-  # would miss every time and grow an entry per call. Development renders normally instead.
-  def test_memo_is_skipped_when_templates_are_not_cached
-    ActionView::Resolver.caching = false
-    v = view
-    5.times { v.instance_eval { bind_render_memo "fixtures/leaf", word: "x" } }
-    assert_nil v.instance_variable_get(:@__view_bind_memo)
-    assert_equal "<i>x</i><i>x</i><i>x</i><i>x</i><i>x</i>", v.output_buffer.to_s.gsub(/\s+/, "")
+  # The memo must behave the same whether or not templates are cached: a partial with a side
+  # effect that runs once in production and three times in development is a bug you only meet
+  # after deploying.
+  def test_memo_behaves_the_same_with_and_without_template_caching
+    was = ActionView::Resolver.caching?
+    results = [true, false].map do |caching|
+      ActionView::Resolver.caching = caching
+      ViewBind.clear_cache
+      v = view
+      3.times { v.instance_eval { bind_render_memo "fixtures/side_effect", word: "x" } }
+      [v.content_for(:counters).to_s, v.output_buffer.to_s.gsub(/\s+/, "")]
+    end
+    assert_equal results.first, results.last
   ensure
-    ActionView::Resolver.caching = true
+    ActionView::Resolver.caching = was
   end
 
   # Documented limitation, pinned: a hit appends markup without running the partial, so a

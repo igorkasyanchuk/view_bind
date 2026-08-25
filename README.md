@@ -39,28 +39,28 @@ partial. Three things keep it there:
 
 ### bind_render_memo
 
-A page that renders the same tag pill 600 times from eight distinct strings renders it eight
-times if you ask it to:
+Keeps a partial's markup for the rest of the request, keyed by its locals values:
 
 ```erb
-<%= bind_render_memo "shared/tag", tag: tag %>
+<%= bind_render_memo "posts/summary", post_id: post.id %>
 ```
 
-The markup is kept for the rest of the request, keyed by the locals *values*. Two rules keep
-it honest. Only values it can compare safely are memoised — String, Symbol, Numeric, true,
-false, nil — so passing a model falls through to a real render rather than risking two
-records that compare equal sharing markup. And the memo lives on the view, so it dies with
-the request: a partial reading `I18n.locale` or `current_user` through a helper stays correct,
-because a request has one of each. A partial that is *not* a pure function of its locals plus
-request state (a counter, `Time.now`, `rand`) must not use it.
+Two rules keep it honest. Only values it can compare safely are memoised — String, Symbol,
+Numeric, true, false, nil — so passing a model falls through to a real render rather than
+risking two records that compare equal sharing markup. And the memo lives on the view, so it
+dies with the request: a partial reading `I18n.locale` or `current_user` through a helper
+stays correct, because a request has one of each. A partial that is *not* a pure function of
+its locals plus request state — a counter, `Time.now`, `rand` — must not use it.
 
-On the benchmark page — 600 buttons from 3 combinations, 600 tags from 8, 200 avatars from 10
-— this is worth another 3 392 objects and 0.78 ms: **3.16x instead of 2.68x**.
+**It only pays on a partial that costs more than the lookup.** A hit runs about 1.0 µs: the
+binding still has to be resolved, because the memo is keyed by it rather than by the path
+string, which is what keeps `primary: "New"` and `secondary: "New"` from colliding. Against
+a leaf partial that renders in 0.93 µs that is a loss. On the benchmark page it is used for
+one subtree — an ownership block with a nested badge, identical for all 200 cards — and is
+worth 1 385 objects: 3.54x allocations against 3.30x, and 2.69x wall-clock against 2.58x.
 
-It is not free: the lookup costs about 0.59 µs against 0.93 µs for rendering the leaf partial
-outright. Memoising a partial cheaper than that *loses*. An earlier version of this helper,
-keyed by an array and type-checked with a block, cost more than it saved on exactly the
-partials it was written for.
+Measure before reaching for it. Two earlier versions of this helper looked like wins and were
+not: the first cost more than it saved, and the second was fast because its key was wrong.
 
 `bind_render_each` goes further: every item renders the same template, so the view bookkeeping
 is saved and restored once for the whole collection rather than once per item. On a 20-item
@@ -142,11 +142,11 @@ env=production  eager_load=true  cache_template_loading=true  reloading=false
 counters: attached only for the inspection pass
 
                                          ms    gc ms      objects   renders  queries     obj x    time x
-  render everywhere (baseline)       11.110     1.25       68 342      2662       10     1.00x     1.00x
-  bind_render in the view             4.430     0.35       21 723        62       10     3.15x     2.55x
-  bind_render in the layout          11.230     1.20       67 316      2601       10     1.02x     0.99x
-  bind_render in both                 4.140     0.35       20 689         1       10     3.30x     2.68x
-  + memoised leaf partials            3.360     0.30       17 297         1       10     3.95x     3.16x
+  render everywhere (baseline)       11.850     1.25       68 342      2662       10     1.00x     1.00x
+  bind_render in the view             4.780     0.35       21 723        62       10     3.15x     2.49x
+  bind_render in the layout          11.720     1.20       67 316      2601       10     1.02x     1.03x
+  bind_render in both                 4.560     0.35       20 689         1       10     3.30x     2.58x
+  + memoised subtree                  4.450     0.30       19 304         1       10     3.54x     2.69x
 ```
 
 Medians of five runs of five rounds. 2 662 render calls collapse to 1, 47 653 fewer objects
@@ -158,7 +158,7 @@ Same code, same 10 queries, same HTML — only the backend changed:
 
 | backend | baseline | bind_render in both | speedup |
 | --- | ---: | ---: | ---: |
-| SQLite, file | 11.11 ms | 4.14 ms | **2.68x** |
+| SQLite, file | 11.85 ms | 4.56 ms | **2.58x** |
 | PostgreSQL 17, localhost | 18.59 ms | 11.08 ms | **1.66x** |
 
 Postgres adds a flat ~7 ms to every route, baseline and bound alike, so the same saved work is

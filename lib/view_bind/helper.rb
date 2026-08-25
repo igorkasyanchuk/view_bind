@@ -6,8 +6,9 @@ module ViewBind
     # Values bind_render_memo will key on: comparing anything else risks serving markup
     # built from a different object that merely looks equal.
     MEMOISABLE = [String, Symbol, Numeric, TrueClass, FalseClass, NilClass].freeze
-    # A page with an unbounded set of locals values must not grow the memo forever.
-    MEMO_LIMIT = 512
+    # Cap on distinct memo entries per partial. The memo dies with the request, so this only
+    # bounds a single page built from an unbounded set of locals values.
+    MEMO_LIMIT_PER_PARTIAL = 512
     # Render a partial by calling its own compiled method, straight into the current buffer.
     #
     #   <%= bind_render "shared/header" %>
@@ -19,14 +20,7 @@ module ViewBind
     def bind_render(path, **locals, &block)
       raise ArgumentError, "bind_render does not support a block; use render for the block form" if block
 
-      bound = ViewBind.bound_for_locals(self, path, locals)
-      # Strict-locals partials go through Template#render, which owns the argument checking
-      # and the StrictLocalsError message; everything else calls the compiled method.
-      if bound.slow
-        bound.template.render(self, locals, output_buffer)
-      else
-        bind_run(bound, locals, output_buffer)
-      end
+      render_bound(ViewBind.bound_for_locals(self, path, locals), locals)
       nil
     end
 
@@ -51,7 +45,9 @@ module ViewBind
     # so passing a record cannot serve you a stale card. The memo lives on the view, so it
     # dies with the request: a partial that reads I18n.locale or current_user through a
     # helper is still correct, because a request has only one of each.
-    def bind_render_memo(path, **locals)
+    def bind_render_memo(path, **locals, &block)
+      raise ArgumentError, "bind_render_memo does not support a block" if block
+
       values = locals.values
       # No block, no intermediate array: the type test is on the hot path of every call.
       i = 0
@@ -62,16 +58,22 @@ module ViewBind
         end
       end
 
-      memo = (@__view_bind_memo ||= {})
-      by_path = (memo[path] ||= {})
+      # Keyed by the resolved binding, not by the path: the binding already encodes the
+      # locals shape, so `label: "New"` and `tooltip: "New"` cannot collide on their value.
+      bound    = ViewBind.bound_for_locals(self, path, locals)
+      memo     = (@__view_bind_memo ||= {}.compare_by_identity)
+      by_value = (memo[bound] ||= {})
       # One local is overwhelmingly the common case, and a bare value keys far cheaper than
       # an array: no allocation, no array hashing.
       key = values.size == 1 ? values[0] : values
-      html = by_path[key]
 
-      if html.nil?
-        html = capture { bind_render(path, **locals) }
-        by_path[key] = html if by_path.size < MEMO_LIMIT
+      if by_value.key?(key)
+        html = by_value[key]
+      else
+        # capture returns nil for a partial that renders nothing; store the empty buffer so
+        # key? still reports a hit and it is not re-rendered on every call.
+        html = capture { render_bound(bound, locals) } || ActiveSupport::SafeBuffer.new
+        by_value[key] = html if by_value.size < MEMO_LIMIT_PER_PARTIAL
       end
 
       output_buffer << html
@@ -139,6 +141,16 @@ module ViewBind
     end
 
     private
+
+    # Strict-locals partials go through Template#render, which owns the argument checking
+    # and the StrictLocalsError message; everything else calls the compiled method.
+    def render_bound(bound, locals)
+      if bound.slow
+        bound.template.render(self, locals, output_buffer)
+      else
+        bind_run(bound, locals, output_buffer)
+      end
+    end
 
     # Mirrors ActionView::Base#_run. This lives in the helper, which is included in the view
     # class, so it can save and restore the view's own ivars directly -- going through

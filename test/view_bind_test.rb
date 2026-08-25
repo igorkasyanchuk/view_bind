@@ -166,6 +166,33 @@ class ViewBindTest < Minitest::Test
     assert_nil second.instance_variable_get(:@__view_bind_memo)
   end
 
+  # The memo is keyed by the resolved binding, which encodes the locals shape: the same
+  # value under a different local name is a different partial rendering.
+  def test_memo_does_not_collide_on_the_value_alone
+    v = view
+    v.instance_eval { bind_render_memo "fixtures/named", primary: "New" }
+    v.instance_eval { bind_render_memo "fixtures/named", secondary: "New" }
+    assert_equal "<i>primary=New</i><i>secondary=New</i>", v.output_buffer.to_s.gsub(/\s+/, "")
+  end
+
+  # capture returns nil for a partial that renders nothing; the memo has to record that as a
+  # hit, or the partial it exists to skip is re-rendered on every call.
+  def test_memo_records_a_partial_that_renders_nothing
+    v = view
+    2.times { v.instance_eval { bind_render_memo "fixtures/empty", word: "x" } }
+    entries = v.instance_variable_get(:@__view_bind_memo).values.first
+    assert entries.key?("x"), "empty render was not memoised"
+    refute_nil entries["x"]
+    assert_equal "", squish(v.output_buffer)
+  end
+
+  def test_memo_rejects_a_block_like_its_siblings
+    v = view
+    assert_raises(ArgumentError) do
+      v.instance_eval { bind_render_memo("fixtures/leaf", word: "x") { "body" } }
+    end
+  end
+
   def test_missing_partial_raises_missing_template
     v = view
     assert_raises(ActionView::MissingTemplate) { v.instance_eval { bind_render "fixtures/nope" } }

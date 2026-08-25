@@ -3,9 +3,10 @@
 module ViewBind
   # Helpers available in every view, partial and layout.
   module Helper
-    # Cap on distinct memo entries per partial. The memo dies with the request, so this only
-    # bounds a single page built from an unbounded set of locals values.
-    MEMO_LIMIT_PER_PARTIAL = 512
+    # Cap on distinct memo entries per partial, per locals shape, per set of lookup details.
+    # The memo dies with the request, so this only bounds a single page built from an
+    # unbounded set of locals values.
+    MEMO_LIMIT_PER_SHAPE = 512
     # Render a partial by calling its own compiled method, straight into the current buffer.
     #
     #   <%= bind_render "shared/header" %>
@@ -59,14 +60,20 @@ module ViewBind
         end
       end
 
-      # Keyed by path, then by the locals names, then by their values. The names matter:
-      # `primary: "New"` and `secondary: "New"` are different renderings of the same partial.
+      # Keyed by lookup details, then path, then the locals names, then their values.
+      #
+      # details_key covers formats, locale and variants: without it, a partial memoised
+      # before `lookup_context.variants = [:phone]` or inside `I18n.with_locale` keeps
+      # serving the markup it was first rendered with. The names matter too --
+      # `primary: "New"` and `secondary: "New"` are different renderings of one partial.
+      #
       # Keying this way rather than by the resolved binding means a hit does not resolve the
-      # template at all, and behaves identically whether or not templates are cached -- so a
+      # template at all, and behaves identically whether or not templates are cached, so a
       # partial with a side effect cannot behave one way in development and another in
       # production.
-      memo     = (@__view_bind_memo ||= {})
-      by_shape = (memo[path] ||= {})
+      memo     = (@__view_bind_memo ||= {}.compare_by_identity)
+      by_path  = (memo[lookup_context.details_key] ||= {})
+      by_shape = (by_path[path] ||= {})
       by_value = (by_shape[locals.keys] ||= {})
       # One local is overwhelmingly the common case, and a bare value keys far cheaper than
       # an array: no allocation, no array hashing.
@@ -78,7 +85,7 @@ module ViewBind
         # capture returns nil for a partial that renders nothing; store the empty buffer so
         # key? still reports a hit and it is not re-rendered on every call.
         html = capture { bind_render(path, **locals) } || ActiveSupport::SafeBuffer.new
-        by_value[key] = html if by_value.size < MEMO_LIMIT_PER_PARTIAL
+        by_value[key] = html if by_value.size < MEMO_LIMIT_PER_SHAPE
       end
 
       output_buffer << html

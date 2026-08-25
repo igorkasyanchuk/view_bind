@@ -180,7 +180,7 @@ class ViewBindTest < Minitest::Test
   def test_memo_records_a_partial_that_renders_nothing
     v = view
     2.times { v.instance_eval { bind_render_memo "fixtures/empty", word: "x" } }
-    entries = v.instance_variable_get(:@__view_bind_memo).values.first.values.first
+    entries = v.instance_variable_get(:@__view_bind_memo).values.first.values.first.values.first
     assert entries.key?("x"), "empty render was not memoised"
     refute_nil entries["x"]
     assert_equal "", squish(v.output_buffer)
@@ -220,6 +220,23 @@ class ViewBindTest < Minitest::Test
     plain = view
     3.times { plain.instance_eval { bind_render "fixtures/side_effect", word: "x" } }
     assert_equal "xxx", plain.content_for(:counters).to_s
+  end
+
+  # Lookup details are part of the memo key: switching variant (or locale) mid-render must
+  # not keep serving the markup the partial was first rendered with.
+  def test_memo_respects_a_variant_change
+    memoised = view
+    memoised.instance_eval { bind_render_memo "fixtures/variantish", word: "x" }
+    memoised.lookup_context.variants = [:phone]
+    memoised.instance_eval { bind_render_memo "fixtures/variantish", word: "x" }
+
+    plain = view
+    plain.instance_eval { bind_render "fixtures/variantish", word: "x" }
+    plain.lookup_context.variants = [:phone]
+    plain.instance_eval { bind_render "fixtures/variantish", word: "x" }
+
+    assert_equal plain.output_buffer.to_s.gsub(/\s+/, ""), memoised.output_buffer.to_s.gsub(/\s+/, "")
+    assert_equal "<i>desktop-x</i><i>phone-x</i>", memoised.output_buffer.to_s.gsub(/\s+/, "")
   end
 
   def test_missing_partial_raises_missing_template

@@ -60,10 +60,11 @@ registering an asset. Rendered three times, a partial containing
 template caching, so that difference shows up in development rather than waiting for
 production.
 
-**It only pays on a partial that costs more than the lookup.** A hit runs about 0.94 µs
-against 0.96 µs to render a leaf partial outright — keyed by path, then locals names, then
-values, so `primary: "New"` and `secondary: "New"` cannot collide, and a hit never resolves
-the template. Memoising anything that cheap is a wash. On the benchmark page it is used for one subtree — an ownership block with a nested badge,
+**It only pays on a partial that costs more than the lookup.** A hit runs about 1.0 µs, the
+same as rendering a leaf partial outright. The key is lookup details, then path, then locals
+names, then values: details so a variant or locale switch is not served stale markup, names
+so `primary: "New"` and `secondary: "New"` cannot collide. Memoising anything that cheap is
+a wash. On the benchmark page it is used for one subtree — an ownership block with a nested badge,
 identical for all 200 cards — and is worth **1 382 objects and no time at all**: 3.54x
 allocations against 3.30x, while wall-clock is a wash (2.55x against 2.63x, inside the run to
 run spread). Take it for GC pressure under concurrency, not for a faster page.
@@ -151,11 +152,11 @@ env=production  eager_load=true  cache_template_loading=true  reloading=false
 counters: attached only for the inspection pass
 
                                          ms    gc ms      objects   renders  queries     obj x    time x
-  render everywhere (baseline)       11.880     1.25       68 342      2662       10     1.00x     1.00x
-  bind_render in the view             4.830     0.35       21 723        62       10     3.15x     2.50x
-  bind_render in the layout          11.650     1.20       67 316      2601       10     1.02x     1.04x
-  bind_render in both                 4.600     0.35       20 689         1       10     3.30x     2.63x
-  + memoised subtree                  4.770     0.30       19 307         1       10     3.54x     2.55x
+  render everywhere (baseline)       12.110     1.25       68 342      2662       10     1.00x     1.00x
+  bind_render in the view             5.060     0.35       21 723        62       10     3.15x     2.39x
+  bind_render in the layout          11.970     1.20       67 316      2601       10     1.02x     1.02x
+  bind_render in both                 4.670     0.35       20 689         1       10     3.30x     2.57x
+  + memoised subtree                  4.700     0.30       19 308         1       10     3.54x     2.59x
 ```
 
 Medians of five runs of five rounds. 2 662 render calls collapse to 1, 47 653 fewer objects
@@ -167,7 +168,7 @@ Same code, same 10 queries, same HTML — only the backend changed:
 
 | backend | baseline | bind_render in both | speedup |
 | --- | ---: | ---: | ---: |
-| SQLite, file | 11.88 ms | 4.60 ms | **2.63x** |
+| SQLite, file | 12.11 ms | 4.67 ms | **2.57x** |
 | PostgreSQL 17, localhost | 18.59 ms | 11.08 ms | **1.66x** |
 
 Postgres adds a flat ~7 ms to every route, baseline and bound alike, so the same saved work is
@@ -237,6 +238,7 @@ goes wrong:
 | The output-buffer limitation stays as documented | `test_a_partial_that_hijacks_the_output_buffer_renders_nothing` |
 | Memo keys on the locals shape, not just values | `test_memo_does_not_collide_on_the_value_alone` |
 | Memo behaves the same with caching on and off | `test_memo_behaves_the_same_with_and_without_template_caching` |
+| Memo respects a variant or locale change | `test_memo_respects_a_variant_change` |
 | Memoised side effects run once, as documented | `test_memo_runs_side_effects_once` |
 | The gem loads outside Rails | `test_loads_without_rails` |
 

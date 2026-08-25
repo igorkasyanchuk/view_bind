@@ -105,7 +105,7 @@ end
 
 puts "\n  #{Post.count} posts / #{Comment.count} comments in #{ActiveRecord::Base.connection.adapter_name}, " \
      "#{POSTS_PER_PAGE} rendered per request."
-puts "  HTML verified byte-identical across all four routes (#{reference.bytesize} bytes)."
+puts "  HTML verified byte-identical across all #{CASES.size} routes (#{reference.bytesize} bytes)."
 puts "  obj x is the allocation ratio, time x the wall-clock ratio -- they differ because the"
 puts "  #{queries[:total]} queries and their ActiveRecord objects cost the same on every route."
 puts "  Objects are exact; milliseconds move with machine load.\n\n"

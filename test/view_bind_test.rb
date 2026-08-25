@@ -193,6 +193,30 @@ class ViewBindTest < Minitest::Test
     end
   end
 
+  # With template caching off every call resolves a fresh binding, so an identity-keyed memo
+  # would miss every time and grow an entry per call. Development renders normally instead.
+  def test_memo_is_skipped_when_templates_are_not_cached
+    ActionView::Resolver.caching = false
+    v = view
+    5.times { v.instance_eval { bind_render_memo "fixtures/leaf", word: "x" } }
+    assert_nil v.instance_variable_get(:@__view_bind_memo)
+    assert_equal "<i>x</i><i>x</i><i>x</i><i>x</i><i>x</i>", v.output_buffer.to_s.gsub(/\s+/, "")
+  ensure
+    ActionView::Resolver.caching = true
+  end
+
+  # Documented limitation, pinned: a hit appends markup without running the partial, so a
+  # side effect inside it happens on the first render only.
+  def test_memo_runs_side_effects_once
+    memoised = view
+    3.times { memoised.instance_eval { bind_render_memo "fixtures/side_effect", word: "x" } }
+    assert_equal "x", memoised.content_for(:counters).to_s
+
+    plain = view
+    3.times { plain.instance_eval { bind_render "fixtures/side_effect", word: "x" } }
+    assert_equal "xxx", plain.content_for(:counters).to_s
+  end
+
   def test_missing_partial_raises_missing_template
     v = view
     assert_raises(ActionView::MissingTemplate) { v.instance_eval { bind_render "fixtures/nope" } }

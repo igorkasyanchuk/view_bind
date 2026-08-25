@@ -40,6 +40,10 @@ module ViewBind
     # counters, nothing but the values passed in -- this collapses hundreds of renders into
     # a handful. A page listing 600 tags drawn from eight distinct strings renders eight.
     #
+    # A hit appends the stored markup without running the partial, so anything the partial
+    # does besides producing markup happens once: `content_for`, `provide`, incrementing an
+    # ivar, registering an asset. Memoise markup, not side effects.
+    #
     # Only values it can safely compare are memoised (String, Symbol, Numeric, true, false,
     # nil); anything else -- a model, a hash, an array -- falls through to a normal render,
     # so passing a record cannot serve you a stale card. The memo lives on the view, so it
@@ -47,6 +51,9 @@ module ViewBind
     # helper is still correct, because a request has only one of each.
     def bind_render_memo(path, **locals, &block)
       raise ArgumentError, "bind_render_memo does not support a block" if block
+      # In development every call resolves a fresh binding, so an identity-keyed memo would
+      # never hit and would grow an entry per call. Render normally instead.
+      return bind_render(path, **locals) unless ActionView::Resolver.caching?
 
       values = locals.values
       # No block, no intermediate array: the type test is on the hot path of every call.

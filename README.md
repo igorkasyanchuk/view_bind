@@ -52,12 +52,20 @@ dies with the request: a partial reading `I18n.locale` or `current_user` through
 stays correct, because a request has one of each. A partial that is *not* a pure function of
 its locals plus request state — a counter, `Time.now`, `rand` — must not use it.
 
+A hit appends the stored markup without running the partial, so **anything the partial does
+besides producing markup happens once** — `content_for`, `provide`, incrementing an ivar,
+registering an asset. Rendered three times, a partial containing
+`<% content_for :counters, "x" %>` leaves `"xxx"` through `bind_render` and `"x"` through
+`bind_render_memo`, with identical markup either way. In development, where every call
+resolves a fresh binding, memoisation is skipped entirely and the partial renders normally.
+
 **It only pays on a partial that costs more than the lookup.** A hit runs about 1.0 µs: the
 binding still has to be resolved, because the memo is keyed by it rather than by the path
 string, which is what keeps `primary: "New"` and `secondary: "New"` from colliding. Against
-a leaf partial that renders in 0.93 µs that is a loss. On the benchmark page it is used for
-one subtree — an ownership block with a nested badge, identical for all 200 cards — and is
-worth 1 385 objects: 3.54x allocations against 3.30x, and 2.69x wall-clock against 2.58x.
+a leaf partial that renders in 0.93 µs that is a loss. On the benchmark page it is used for one subtree — an ownership block with a nested badge,
+identical for all 200 cards — and is worth **1 385 objects and no measurable time**: 3.54x
+allocations against 3.30x, with wall-clock identical at 2.6x. Take it for GC pressure under
+concurrency, not for a faster page.
 
 Measure before reaching for it. Two earlier versions of this helper looked like wins and were
 not: the first cost more than it saved, and the second was fast because its key was wrong.
@@ -142,11 +150,11 @@ env=production  eager_load=true  cache_template_loading=true  reloading=false
 counters: attached only for the inspection pass
 
                                          ms    gc ms      objects   renders  queries     obj x    time x
-  render everywhere (baseline)       11.850     1.25       68 342      2662       10     1.00x     1.00x
-  bind_render in the view             4.780     0.35       21 723        62       10     3.15x     2.49x
-  bind_render in the layout          11.720     1.20       67 316      2601       10     1.02x     1.03x
-  bind_render in both                 4.560     0.35       20 689         1       10     3.30x     2.58x
-  + memoised subtree                  4.450     0.30       19 304         1       10     3.54x     2.69x
+  render everywhere (baseline)       12.050     1.25       68 342      2662       10     1.00x     1.00x
+  bind_render in the view             4.750     0.35       21 723        62       10     3.15x     2.57x
+  bind_render in the layout          12.010     1.20       67 316      2601       10     1.02x     1.01x
+  bind_render in both                 4.650     0.35       20 689         1       10     3.30x     2.61x
+  + memoised subtree                  4.640     0.30       19 304         1       10     3.54x     2.60x
 ```
 
 Medians of five runs of five rounds. 2 662 render calls collapse to 1, 47 653 fewer objects
@@ -158,7 +166,7 @@ Same code, same 10 queries, same HTML — only the backend changed:
 
 | backend | baseline | bind_render in both | speedup |
 | --- | ---: | ---: | ---: |
-| SQLite, file | 11.85 ms | 4.56 ms | **2.58x** |
+| SQLite, file | 12.05 ms | 4.65 ms | **2.61x** |
 | PostgreSQL 17, localhost | 18.59 ms | 11.08 ms | **1.66x** |
 
 Postgres adds a flat ~7 ms to every route, baseline and bound alike, so the same saved work is
@@ -226,6 +234,9 @@ goes wrong:
 | `bind_capture` returns markup, `content_for` works | `test_bind_capture_works_with_content_for` |
 | A block raises instead of being dropped | `test_block_form_raises_instead_of_being_ignored` |
 | The output-buffer limitation stays as documented | `test_a_partial_that_hijacks_the_output_buffer_renders_nothing` |
+| Memo keys on the locals shape, not just values | `test_memo_does_not_collide_on_the_value_alone` |
+| Memo is skipped where it cannot hit | `test_memo_is_skipped_when_templates_are_not_cached` |
+| Memoised side effects run once, as documented | `test_memo_runs_side_effects_once` |
 | The gem loads outside Rails | `test_loads_without_rails` |
 
 In development, templates are re-resolved on every call (guarded on

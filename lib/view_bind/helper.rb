@@ -18,7 +18,12 @@ module ViewBind
     def bind_render(path, **locals, &block)
       raise ArgumentError, "bind_render does not support a block; use render for the block form" if block
 
-      render_bound(ViewBind.bound_for_locals(self, path, locals), locals)
+      bound = ViewBind.bound_for_locals(self, path, locals)
+      return (render_bound(bound, locals); nil) unless ViewBind.profile?
+
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      render_bound(bound, locals)
+      ViewBind::Profiler.record(path, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started)
       nil
     end
 
@@ -115,6 +120,7 @@ module ViewBind
 
       partial_iteration = ActionView::PartialIteration.new(collection.size)
       locals[iteration] = partial_iteration
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC) if ViewBind.profile?
 
       if bound.slow
         collection.each do |item|
@@ -148,6 +154,10 @@ module ViewBind
         @output_buffer    = previous_buffer
         @virtual_path     = previous_path
         @current_template = previous_template
+        if started
+          ViewBind::Profiler.record(path, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started,
+                                    collection.size)
+        end
       end
       nil
     end

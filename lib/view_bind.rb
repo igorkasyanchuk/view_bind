@@ -4,6 +4,7 @@ require "concurrent/map"
 require_relative "view_bind/version"
 require_relative "view_bind/helper"
 require_relative "view_bind/tracker"
+require_relative "view_bind/profiler"
 require_relative "view_bind/railtie" if defined?(Rails::Railtie)
 
 # ViewBind renders a partial by calling the method Rails already compiled for it,
@@ -38,6 +39,12 @@ module ViewBind
   CACHE = Concurrent::Map.new
 
   class << self
+    # Log one summary line per request instead of Rails' one line per partial, which bound
+    # partials no longer produce. Off by default; see ViewBind::Profiler.
+    attr_writer :profile
+
+    def profile? = @profile == true
+
     def bound_for(view, path, keys)
       # In development ActionView::Resolver.caching? is false: resolve every time so that
       # edits to a partial are picked up without a restart.

@@ -12,6 +12,15 @@ module ViewBind
         ViewBind::Tracker.register_for(:erb)
       end
 
+      # One summary per request, in place of the per-partial lines bound partials no longer
+      # produce. Subscribed once; does nothing while profiling is off.
+      ActiveSupport::Notifications.subscribe("process_action.action_controller") do
+        next unless ViewBind.profile?
+
+        summary = ViewBind::Profiler.summary
+        Rails.logger.info(summary) if summary
+      end
+
       # A code reload rebuilds view classes and template caches; ours has to go with them.
       # Without this an app that enables cache_template_loading in development would keep
       # rendering the version of a partial it first resolved.

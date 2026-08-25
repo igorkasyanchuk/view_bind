@@ -255,6 +255,33 @@ with the partial's own source extracted around the failing line, exactly as `ren
 That is not a trick this gem plays: the partial is a normal compiled template, so
 `backtrace_locations`, `SourceMapLocation` and ErrorHighlight all resolve it the usual way.
 
+## Seeing where the time goes
+
+Bound partials produce no `render_partial.action_view` events — that is part of what makes them
+cheap — so the per-partial log lines go with them. In their place, one summary per request:
+
+```ruby
+# config/environments/development.rb
+ViewBind.profile = true
+```
+
+```
+ViewBind: 321 calls, 35.91ms
+  posts/card_bound                   x20      17.68ms
+  posts/author_bound                 x20       3.10ms
+  shared/sidebar_bound               x1        2.76ms
+  posts/actions_bound                x20       2.72ms
+  shared/button                      x61       1.06ms
+  shared/tag                         x70       1.02ms
+```
+
+Sorted by time, top ten, one line per partial rather than one per render. Times nest exactly as
+Rails' own do: `posts/card_bound` includes everything its children spent.
+
+Off by default. While off the cost is a single boolean test per call; switched on it adds two
+clock reads, about **0.26 µs per call** — fine for development, not something to leave on in
+production.
+
 ## Limitations
 
 - No `:layout`, `:spacer_template`, `:cached` or `:object` options. Use `render` where you need
@@ -266,7 +293,9 @@ That is not a trick this gem plays: the partial is a normal compiled template, s
   `ViewBind::Tracker.register_for(:haml)` in an initializer. Registration extends whatever
   tracker is already installed for that handler rather than replacing it.
 - No `render` instrumentation is emitted for bound partials, by design. Your APM will show
-  fewer view events and per-partial timings for them disappear.
+  fewer view events, and Rails' per-partial `Rendered …` log lines disappear for them — 65
+  lines become 2 on the benchmark page. The `Completed … (Views: 16.9ms)` total is unaffected.
+  See **Seeing where the time goes** below for the replacement.
 - A partial that reassigns `@output_buffer` without restoring it loses its output. These
   helpers write into the buffer they are given, whereas `render` builds its own buffer and
   takes whatever the partial returns, so it survives that. `capture` and `with_output_buffer`

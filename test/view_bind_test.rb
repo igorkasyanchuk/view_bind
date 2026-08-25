@@ -239,6 +239,29 @@ class ViewBindTest < Minitest::Test
     assert_equal "<i>desktop-x</i><i>phone-x</i>", memoised.output_buffer.to_s.gsub(/\s+/, "")
   end
 
+  # Bound partials emit no render_partial events, so the profiler is the replacement for the
+  # per-partial log lines. Off by default, and it must stay off unless asked.
+  def test_profiler_is_off_by_default
+    v = view
+    3.times { v.instance_eval { bind_render "fixtures/leaf", word: "x" } }
+    assert_nil ViewBind::Profiler.summary
+  end
+
+  def test_profiler_counts_calls_and_collections
+    ViewBind.profile = true
+    v = view
+    2.times { v.instance_eval { bind_render "fixtures/leaf", word: "x" } }
+    v.instance_eval { bind_render_each "fixtures/item", %w[a b c], as: :item }
+
+    summary = ViewBind::Profiler.summary
+    assert_match(/ViewBind: 5 calls/, summary)
+    assert_match(/fixtures\/leaf\s+x2/, summary)
+    assert_match(/fixtures\/item\s+x3/, summary)
+  ensure
+    ViewBind.profile = false
+    ViewBind::Profiler.flush
+  end
+
   def test_missing_partial_raises_missing_template
     v = view
     assert_raises(ActionView::MissingTemplate) { v.instance_eval { bind_render "fixtures/nope" } }

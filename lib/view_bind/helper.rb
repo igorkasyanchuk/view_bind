@@ -18,12 +18,15 @@ module ViewBind
     def bind_render(path, **locals, &block)
       raise ArgumentError, "bind_render does not support a block; use render for the block form" if block
 
-      bound = ViewBind.bound_for_locals(self, path, locals)
-      return (render_bound(bound, locals); nil) unless ViewBind.profile?
+      unless ViewBind.profile?
+        render_bound(ViewBind.bound_for_locals(self, path, locals), locals)
+        return nil
+      end
 
-      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      render_bound(bound, locals)
-      ViewBind::Profiler.record(path, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started)
+      # The lookup is part of what a call costs, so it is inside the measurement.
+      ViewBind::Profiler.measure(path) do
+        render_bound(ViewBind.bound_for_locals(self, path, locals), locals)
+      end
       nil
     end
 
@@ -84,26 +87,16 @@ module ViewBind
       # an array: no allocation, no array hashing.
       key = values.size == 1 ? values[0] : values
 
-      profiling = ViewBind.profile?
-      started   = Process.clock_gettime(Process::CLOCK_MONOTONIC) if profiling
-      hit       = by_value.key?(key)
+      hit = by_value.key?(key)
 
-      if hit
-        html = by_value[key]
-      else
-        # Render through the resolved binding rather than bind_render, so the profiler counts
-        # this call once here instead of once here and once inside.
-        bound = ViewBind.bound_for_locals(self, path, locals)
-        # capture returns nil for a partial that renders nothing; store the empty buffer so
-        # key? still reports a hit and it is not re-rendered on every call.
-        html = capture { render_bound(bound, locals) } || ActiveSupport::SafeBuffer.new
-        by_value[key] = html if by_value.size < MEMO_LIMIT_PER_SHAPE
-      end
-
-      if profiling
-        ViewBind::Profiler.record(path, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started,
-                                  memo_hits: hit ? 1 : 0)
-      end
+      # A method rather than a lambda: a block here would allocate on every call, profiling
+      # or not, and this is the hot path the memo exists to keep cheap.
+      html =
+        if ViewBind.profile?
+          ViewBind::Profiler.measure(path, memo_hits: hit ? 1 : 0) { memo_fetch(by_value, key, hit, path, locals) }
+        else
+          memo_fetch(by_value, key, hit, path, locals)
+        end
 
       output_buffer << html
       nil
@@ -132,7 +125,7 @@ module ViewBind
 
       partial_iteration = ActionView::PartialIteration.new(collection.size)
       locals[iteration] = partial_iteration
-      started = Process.clock_gettime(Process::CLOCK_MONOTONIC) if ViewBind.profile?
+
 
       if bound.slow
         collection.each do |item|
@@ -153,12 +146,20 @@ module ViewBind
       @output_buffer    = buffer
       render_method     = bound.unbound_method
 
-      begin
+      each_item = lambda do
         collection.each do |item|
           locals[as]      = item
           locals[counter] = partial_iteration.index
           render_method.bind_call(self, locals, buffer)
           partial_iteration.iterate!
+        end
+      end
+
+      begin
+        if ViewBind.profile?
+          ViewBind::Profiler.measure(path, count: collection.size) { each_item.call }
+        else
+          each_item.call
         end
       rescue StandardError => e
         bound.template.send(:handle_render_error, self, e)
@@ -166,15 +167,24 @@ module ViewBind
         @output_buffer    = previous_buffer
         @virtual_path     = previous_path
         @current_template = previous_template
-        if started
-          ViewBind::Profiler.record(path, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started,
-                                    count: collection.size)
-        end
       end
       nil
     end
 
     private
+
+    # Returns the memoised markup, rendering and storing it on a miss. Rendering goes through
+    # the resolved binding rather than bind_render, so the profiler counts the call once.
+    def memo_fetch(by_value, key, hit, path, locals)
+      return by_value[key] if hit
+
+      bound = ViewBind.bound_for_locals(self, path, locals)
+      # capture returns nil for a partial that renders nothing; store the empty buffer so
+      # key? still reports a hit and it is not re-rendered on every call.
+      rendered = capture { render_bound(bound, locals) } || ActiveSupport::SafeBuffer.new
+      by_value[key] = rendered if by_value.size < MEMO_LIMIT_PER_SHAPE
+      rendered
+    end
 
     # Strict-locals partials go through Template#render, which owns the argument checking
     # and the StrictLocalsError message; everything else calls the compiled method.

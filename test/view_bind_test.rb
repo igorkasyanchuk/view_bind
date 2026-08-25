@@ -281,6 +281,27 @@ class ViewBindTest < Minitest::Test
     ViewBind::Profiler.reset
   end
 
+  # A parent's duration already contains its children's, so the header must total only the
+  # outermost calls -- otherwise every nested partial is counted twice.
+  def test_profiler_total_does_not_double_count_nesting
+    ViewBind.profile = true
+    ViewBind::Profiler.reset
+    v = view
+    v.instance_eval { bind_render "fixtures/parent", word: "deep" }   # parent renders leaf
+
+    summary = ViewBind::Profiler.summary
+    header  = summary.lines.first[/([\d.]+)ms/, 1].to_f
+    parent  = summary.lines.find { |l| l.include?("fixtures/parent") }[/([\d.]+)ms/, 1].to_f
+    leaf    = summary.lines.find { |l| l.include?("fixtures/leaf") }[/([\d.]+)ms/, 1].to_f
+
+    assert_operator leaf, :>, 0, "the nested partial should be timed"
+    assert_in_delta parent, header, 0.01, "header should be the outermost call, not a sum"
+    assert_operator header, :<, parent + leaf, "nested time was counted twice"
+  ensure
+    ViewBind.profile = false
+    ViewBind::Profiler.reset
+  end
+
   def test_missing_partial_raises_missing_template
     v = view
     assert_raises(ActionView::MissingTemplate) { v.instance_eval { bind_render "fixtures/nope" } }

@@ -266,7 +266,7 @@ ViewBind.profile = true
 ```
 
 ```
-ViewBind: 302 calls, 37.61ms
+ViewBind: 302 calls, 24.10ms in bound partials
   posts/card_memo                    x20      17.76ms
   shared/sidebar_bound               x1        3.66ms
   posts/author_bound                 x20       3.33ms
@@ -274,8 +274,10 @@ ViewBind: 302 calls, 37.61ms
   shared/button                      x61       1.70ms
 ```
 
-Sorted by time, top ten, one line per partial rather than one per render. Times nest exactly as
-Rails' own do: `posts/card_memo` includes everything its children spent. `(19 memo)` counts the
+Sorted by time, top ten, one line per partial rather than one per render. Per-partial times nest
+exactly as Rails' own do — `posts/card_memo` includes everything its children spent — so the
+header totals only the outermost calls rather than summing rows that overlap. The measurement
+starts before the binding lookup, so it covers what a call actually costs, not just the partial. `(19 memo)` counts the
 calls `bind_render_memo` served without rendering — the hit rate, which is the number worth
 checking before deciding whether memoisation earns its place.
 

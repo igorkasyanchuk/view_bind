@@ -15,19 +15,36 @@ module ViewBind
   # Off by default, and when off the only cost is one boolean test per call.
   module Profiler
     KEY = :view_bind_profile
+    DEPTH = :view_bind_profile_depth
 
     class << self
+      # Times a bound render. Nesting is tracked so the header can total only the outermost
+      # calls: a parent's duration already contains its children's, and adding every row
+      # would count the children twice.
+      def measure(path, count: 1, memo_hits: 0)
+        depth = Thread.current[DEPTH] || 0
+        Thread.current[DEPTH] = depth + 1
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        yield
+      ensure
+        Thread.current[DEPTH] = depth
+        record(path, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started,
+               count: count, memo_hits: memo_hits, top_level: depth.zero?)
+      end
+
       # count: how many renders this call represents (a collection counts as its size).
       # memo_hits: how many of them were served from bind_render_memo without rendering.
-      def record(path, elapsed, count: 1, memo_hits: 0)
+      # top_level: whether this call was not nested inside another bound render.
+      def record(path, elapsed, count: 1, memo_hits: 0, top_level: true)
         row = store[path]
         row[0] += count
         row[1] += elapsed
         row[2] += memo_hits
+        row[3] += elapsed if top_level
       end
 
       def store
-        Thread.current[KEY] ||= Hash.new { |hash, key| hash[key] = [0, 0.0, 0] }
+        Thread.current[KEY] ||= Hash.new { |hash, key| hash[key] = [0, 0.0, 0, 0.0] }
       end
 
       # Called at the start and the end of an action. Renders outside a controller action --
@@ -35,6 +52,7 @@ module ViewBind
       # next runs on this thread.
       def reset
         Thread.current[KEY] = nil
+        Thread.current[DEPTH] = nil
       end
 
       # A pure read: returns nil when nothing was recorded, so the caller logs nothing and
@@ -43,10 +61,11 @@ module ViewBind
         rows = Thread.current[KEY]
         return nil if rows.nil? || rows.empty?
 
-        calls = rows.sum { |_, (count, _, _)| count }
-        total = rows.sum { |_, (_, seconds, _)| seconds }
-        lines = ["ViewBind: #{calls} calls, #{format('%.2f', total * 1000)}ms"]
-        rows.sort_by { |_, (_, seconds, _)| -seconds }.first(limit).each do |path, (count, seconds, hits)|
+        calls = rows.sum { |_, row| row[0] }
+        # Only outermost calls, so a parent and its children are not both counted.
+        total = rows.sum { |_, row| row[3] }
+        lines = ["ViewBind: #{calls} calls, #{format('%.2f', total * 1000)}ms in bound partials"]
+        rows.sort_by { |_, row| -row[1] }.first(limit).each do |path, (count, seconds, hits, _)|
           suffix = hits.positive? ? "  (#{hits} memo)" : ""
           lines << format("  %-34s x%-6d %6.2fms%s", path, count, seconds * 1000, suffix)
         end

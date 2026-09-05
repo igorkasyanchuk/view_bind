@@ -22,7 +22,12 @@ Gem::Specification.new do |spec|
   spec.metadata["source_code_uri"] = spec.homepage
   spec.metadata["changelog_uri"]   = "#{spec.homepage}/blob/main/CHANGELOG.md"
 
-  spec.files = Dir["lib/**/*.rb", "README.md", "CHANGELOG.md", "LICENSE.txt"]
+  # Globbed from the gemspec's own directory, not the working one. A bare Dir[] resolves
+  # against Dir.pwd, so `gem build path/to/view_bind.gemspec` from anywhere else matched
+  # nothing and shipped an empty gem while reporting success. RubyGems still reads the listed
+  # paths relative to Dir.pwd, so such a build cannot succeed either way -- but it now fails
+  # naming the files it could not find, instead of publishing a gem with no lib/ in it.
+  spec.files = Dir.chdir(__dir__) { Dir["lib/**/*.rb", "README.md", "CHANGELOG.md", "LICENSE.txt"] }
   spec.require_paths = ["lib"]
 
   spec.add_dependency "actionview", ">= 7.1"

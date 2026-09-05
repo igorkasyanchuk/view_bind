@@ -46,11 +46,14 @@ The 200-post page intentionally has many nested partials. Smaller pages or reque
 by database/external-service latency should not be expected to reproduce its percentage gain.
 Changing the HTML, runtime, database or profiling configuration requires a new measurement.
 
-## Readiness checks for this revision
+## Readiness checks
 
-- Ruby 3.4.4 / Rails 8.1.3.1: 78 tests, 171 assertions, no failures or skips.
-- Ruby 3.4.4 / Rails 8.0.5.1: 78 tests, no failures; the Rails-8.1-only tracker test is skipped.
-- Ruby 3.1.7 / Rails 7.1.6: 78 tests, no failures; the same version-specific test is skipped.
+Unlike the measurements above, which are frozen to the run recorded in the JSON files, these
+track the current revision and are re-checked when it changes.
+
+- Ruby 3.4.5 / Rails 8.1.3.1: 78 tests, 171 assertions, no failures or skips.
+- Ruby 3.4.5 / Rails 8.0.5.1: 78 tests, no failures; the Rails-8.1-only tracker test is skipped.
+- Ruby 3.1.7 / Rails 7.1.6 on CI: 78 tests, no failures; the same version-specific test is skipped.
 - Line coverage: 252/252; branch coverage: 85/85.
 - Every regression found in the audits of this revision has a test in the normal suite: see
   the behaviour table in the main README, which names the test covering each one. A concurrent

@@ -7,6 +7,7 @@ gemspec
 gem "rails", ">= 7.1"
 gem "rake"
 gem "minitest"
+gem "simplecov", require: false
 gem "rackup"
 gem "puma"
 gem "sqlite3"

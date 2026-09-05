@@ -3,9 +3,15 @@
 module ViewBind
   # Helpers available in every view, partial and layout.
   module Helper
-    # Cap on distinct memo entries per partial, per locals shape, per set of lookup details.
-    # The memo dies with the request, so this only bounds a single page built from an
-    # unbounded set of locals values.
+    # Cap on distinct memo entries per partial, per locals shape, per HTML-safety mask, per
+    # resolver context. The memo dies with the request, so this only bounds a single page
+    # built from an unbounded set of locals values.
+    #
+    # The mask is part of what is counted, so a partial whose locals arrive sometimes
+    # html_safe and sometimes not can hold this many entries per mask it actually sees.
+    # Counting across masks instead would put a sum over the mask table on the hot path of
+    # every call, which costs more than the bound is worth: the masks a call site produces
+    # are bounded by 2**locals.size and the whole memo dies with the request.
     MEMO_LIMIT_PER_SHAPE = 512
     # Render a partial by calling its own compiled method, straight into the current buffer.
     #
@@ -142,26 +148,43 @@ module ViewBind
     def memo_render(path, locals)
       values = locals.values
       # No block, no intermediate array: the type test is on the hot path of every call.
+      #
+      # `safety` records which values are html_safe. A SafeBuffer and an equal plain String
+      # are eql? and hash alike, but ERB escapes only the plain one, so they must not share a
+      # memo entry: whichever rendered first would decide the escaping for both, and markup
+      # meant to be escaped would be emitted raw. Keying on a separate mask rather than on a
+      # marker inside the value allocates nothing per call, and cannot be forged by a local
+      # that happens to start with the marker. A SafeBuffer whose html_safe? is false escapes
+      # exactly like a String, so it shares.
+      safety = 0
       i = 0
       while i < values.size
-        case values[i]
-        when String, Symbol, Numeric, true, false, nil then i += 1
+        case (value = values[i])
+        when String
+          safety |= (1 << i) if value.html_safe?
+          i += 1
+        when Symbol, Numeric, true, false, nil then i += 1
         else
           bind_render(path, **locals)
           return :delegated
         end
       end
 
-      # Keyed by lookup details, then path, then the locals names, then their values.
+      # Keyed by resolver context, then path, then the locals names, then which of them are
+      # html_safe, then their values.
       #
-      # details_key covers formats, locale and variants: without it, a partial memoised
-      # before `lookup_context.variants = [:phone]` or inside `I18n.with_locale` keeps
-      # serving the markup it was first rendered with. The names matter too --
-      # `primary: "New"` and `secondary: "New"` are different renderings of one partial.
-      memo     = (@__view_bind_memo ||= {}.compare_by_identity)
-      by_path  = (memo[lookup_context.details_key] ||= {})
-      by_shape = (by_path[path] ||= {})
-      by_value = (by_shape[locals.keys] ||= {})
+      # The context covers formats, locale, variants, view paths and prefixes: without it, a
+      # partial memoised before `lookup_context.variants = [:phone]`, inside
+      # `I18n.with_locale`, or under a different view path keeps serving the markup it was
+      # first rendered with. The names matter too -- `primary: "New"` and `secondary: "New"`
+      # are different renderings of one partial. A view that leaves a context and comes back
+      # to it gets a fresh context object and so an empty memo, which re-renders rather than
+      # serving anything stale.
+      memo      = (@__view_bind_memo ||= {}.compare_by_identity)
+      by_path   = (memo[ViewBind.context_for(self)] ||= {})
+      by_shape  = (by_path[path] ||= {})
+      by_safety = (by_shape[locals.keys] ||= {})
+      by_value  = (by_safety[safety] ||= {})
       # One local is overwhelmingly the common case, and a bare value keys far cheaper than
       # an array: no allocation, no array hashing.
       key = values.size == 1 ? values[0] : values
@@ -180,8 +203,22 @@ module ViewBind
       # capture returns nil for a partial that renders nothing; store the empty buffer so
       # key? still reports a hit and it is not re-rendered on every call.
       rendered = capture { render_bound(bound, locals) } || ActiveSupport::SafeBuffer.new
-      by_value[key] = rendered if by_value.size < MEMO_LIMIT_PER_SHAPE
+      by_value[memo_key_snapshot(key)] = rendered if by_value.size < MEMO_LIMIT_PER_SHAPE
       rendered
+    end
+
+    # Hash copies and freezes a key of its own accord only when that key's class is exactly
+    # String -- not a SafeBuffer, and not a String held inside an Array key. Anything the
+    # caller could still mutate therefore gets its own frozen copy here, or a later `<<` on
+    # the value that was passed would move the stored entry out of its own bucket. Only the
+    # miss path pays for this; a lookup goes on using the caller's value, which hashes the
+    # same. Copying a bare String too costs nothing, since it is the copy Hash would make.
+    def memo_key_snapshot(key)
+      case key
+      when Array  then key.map { |value| memo_key_snapshot(value) }
+      when String then key.frozen? ? key : key.dup.freeze
+      else key
+      end
     end
 
     # Strict-locals partials go through Template#render, which owns the argument checking

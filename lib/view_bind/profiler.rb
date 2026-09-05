@@ -85,7 +85,8 @@ module ViewBind
           suffix = hits.positive? ? "  (#{hits} memo)" : ""
           lines << format("  %-34s x%-6d %6.2fms%s", path, count, seconds * 1000, suffix)
         end
-        lines << "  … and #{rows.size - limit} more partials" if rows.size > limit
+        omitted = rows.size - limit
+        lines << "  … and #{omitted} more #{'partial'.pluralize(omitted)}" if omitted.positive?
         lines.join("\n")
       end
     end

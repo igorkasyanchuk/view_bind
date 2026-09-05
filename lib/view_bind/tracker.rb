@@ -8,7 +8,14 @@ module ViewBind
   # Only handlers this is registered for are tracked. ERB is registered automatically; for
   # another template engine, call ViewBind::Tracker.register_for(:haml) in an initializer.
   class Tracker
-    DIRECTIVE = /\bbind_(?:render|capture)(?:_each)?\s+["']([^"']+)["']/
+    # Every public helper form: bind_render, bind_capture, bind_render_each,
+    # bind_render_memo, with or without parentheses. Missing one leaves a parent's fragment
+    # digest unchanged when the partial it names is edited.
+    #
+    # The path may only start a new line once a parenthesis has been opened. Allowing a bare
+    # line break would make a plain string literal on the line after an argument-less call
+    # look like that call's path.
+    DIRECTIVE = /\bbind_(?:render|capture)(?:_each|_memo)?(?:[ \t]*\(\s*|[ \t]+)["']([^"']+)["']/
 
     # handler => the tracker that was registered before us, so we extend rather than replace
     @wrapped = {}

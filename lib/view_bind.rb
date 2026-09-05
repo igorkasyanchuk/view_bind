@@ -24,19 +24,30 @@ module ViewBind
   # reach.
   Bound = Struct.new(:template, :method_name, :slow, :unbound_method)
 
-  # details_key => virtual path => [[locals keys, Bound], ...]
+  # resolver context => virtual path => [[locals keys, Bound], ...]
   #
-  # Nested maps rather than one map keyed by a composite array: a hit allocates nothing.
-  # details_key covers formats, locale and variants.
+  # The context is everything `find_template` consults besides the path -- the details key
+  # (formats, locale, variants), the view paths and the prefixes -- plus the cache
+  # generation. Keying on the details key alone is not enough: two lookup contexts that differ
+  # only in view paths (a themed or tenant path, an engine, an override) or in prefixes (a
+  # relative partial name rendered from two controllers) share a details key and would
+  # otherwise share a template.
   #
-  # A Bound holds the name of a method compiled into one view class's compiled method
-  # container, which is safe because Rails maintains exactly one: ActionView caches
-  # `DetailsKey.view_context_class`, and `DetailsKey.clear` drops that class, the resolver
-  # caches and every details_key together (lookup_context.rb). A new container therefore
-  # always arrives with new details keys, which miss this cache and rebuild. Stock `render`
-  # relies on the same invariant -- a Template compiles once, and calling it from a second
-  # container raises NoMethodError there too.
+  # The compiled method container is deliberately not part of it. A Bound holds the name of a
+  # method compiled into one container, and Rails maintains exactly one per details key:
+  # ActionView caches `DetailsKey.view_context_class`, and `DetailsKey.clear` drops that
+  # class, the resolver caches and every details key together (lookup_context.rb). A new
+  # container therefore always arrives with new details keys and new Templates. Stock `render`
+  # relies on the same invariant -- a Template compiles once, and a second container built by
+  # hand raises NoMethodError there too.
+  #
+  # A hit still allocates nothing: the composite key is built once per view per context and
+  # memoised on the view by #context_for, and the array scan below runs against the inner map.
   CACHE = Concurrent::Map.new
+
+  # Bumped by .clear_cache so that a view which already memoised a bindings map stops using
+  # it. Clearing CACHE alone leaves such a view rendering the templates it resolved before.
+  @generation = 0
 
   class << self
     # Log one summary line per request instead of Rails' one line per partial, which bound
@@ -75,24 +86,45 @@ module ViewBind
       bound_for(view, path, locals.keys)
     end
 
-    # The map for this view's container and lookup details, memoised on the view itself: a
-    # request renders hundreds of partials through the same pair, and re-deriving it per call
-    # costs more than the array scan it guards. Compared by identity -- a single view can
-    # switch formats or variants part-way through a render.
-    def bindings_for(view)
-      details_key = view.lookup_context.details_key
-      cached      = view.instance_variable_get(:@__view_bind_bindings)
-      return cached[1] if cached && cached[0].equal?(details_key)
-
-      CACHE.fetch_or_store(details_key) { Concurrent::Map.new }.tap do |map|
-        view.instance_variable_set(:@__view_bind_bindings, [details_key, map])
+    # This view's resolver context, memoised on the view itself: a request renders hundreds of
+    # partials through the same one, and re-deriving it per call costs more than the array
+    # scan it guards. Re-checked rather than assumed on every call, because a single view can
+    # switch formats, variants, view paths or prefixes part-way through a render.
+    #
+    # The last slot holds the bindings map, so #bindings_for is a memoised read too. Building
+    # the context does not touch CACHE, which lets the per-request memo in Helper key on it
+    # without populating a cache that development deliberately does not use.
+    def context_for(view)
+      lookup = view.lookup_context
+      cached = view.instance_variable_get(:@__view_bind_context)
+      if cached &&
+         cached[0].equal?(lookup.details_key) &&
+         cached[1].equal?(lookup.view_paths) &&
+         cached[2] == lookup.prefixes &&
+         cached[3] == @generation
+        return cached
       end
+
+      # prefixes is a plain Array the caller owns; a copy is what makes the check above catch
+      # an in-place edit, and keeps the CACHE key from rotting under one.
+      context = [lookup.details_key, lookup.view_paths, lookup.prefixes.dup, @generation, nil]
+      view.instance_variable_set(:@__view_bind_context, context)
+      context
+    end
+
+    # The map of bindings resolved under this view's resolver context.
+    def bindings_for(view)
+      context = context_for(view)
+      context[4] ||= CACHE.fetch_or_store(context[0, 4]) { Concurrent::Map.new }
     end
 
     # Drops every resolved template. The railtie hooks this to ActiveSupport::Reloader, so
     # a code reload cannot leave a stale template behind even in an app that turns
     # `cache_template_loading` on in development.
     def clear_cache
+      # Views alive across the clear hold a memoised context pointing at a map that is about
+      # to be emptied; the generation is what makes them rebuild instead of reusing it.
+      @generation += 1
       CACHE.clear
     end
 

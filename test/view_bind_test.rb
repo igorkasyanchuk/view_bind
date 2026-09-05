@@ -65,7 +65,7 @@ class ViewBindTest < Minitest::Test
     v.instance_variable_set(:@who, "ada")
     v.instance_variable_set(:@depth, 2)
     v.instance_eval { bind_render "fixtures/ivar_outer" }
-    assert_equal "<div>ada<em>ADA-2</em></div>", v.output_buffer.to_s.gsub(/\s+/, "")
+    assert_equal "<div>ada<em>ADA-2</em></div>", dense(v.output_buffer)
   end
 
   def test_instance_variables_match_render_exactly
@@ -172,7 +172,7 @@ class ViewBindTest < Minitest::Test
     v = view
     v.instance_eval { bind_render_memo "fixtures/named", primary: "New" }
     v.instance_eval { bind_render_memo "fixtures/named", secondary: "New" }
-    assert_equal "<i>primary=New</i><i>secondary=New</i>", v.output_buffer.to_s.gsub(/\s+/, "")
+    assert_equal "<i>primary=New</i><i>secondary=New</i>", dense(v.output_buffer)
   end
 
   # capture returns nil for a partial that renders nothing; the memo has to record that as a
@@ -180,7 +180,7 @@ class ViewBindTest < Minitest::Test
   def test_memo_records_a_partial_that_renders_nothing
     v = view
     2.times { v.instance_eval { bind_render_memo "fixtures/empty", word: "x" } }
-    entries = v.instance_variable_get(:@__view_bind_memo).values.first.values.first.values.first
+    entries = memo_entries(v)
     assert entries.key?("x"), "empty render was not memoised"
     refute_nil entries["x"]
     assert_equal "", squish(v.output_buffer)
@@ -203,7 +203,7 @@ class ViewBindTest < Minitest::Test
       ViewBind.clear_cache
       v = view
       3.times { v.instance_eval { bind_render_memo "fixtures/side_effect", word: "x" } }
-      [v.content_for(:counters).to_s, v.output_buffer.to_s.gsub(/\s+/, "")]
+      [v.content_for(:counters).to_s, dense(v.output_buffer)]
     end
     assert_equal results.first, results.last
   ensure
@@ -235,8 +235,8 @@ class ViewBindTest < Minitest::Test
     plain.lookup_context.variants = [:phone]
     plain.instance_eval { bind_render "fixtures/variantish", word: "x" }
 
-    assert_equal plain.output_buffer.to_s.gsub(/\s+/, ""), memoised.output_buffer.to_s.gsub(/\s+/, "")
-    assert_equal "<i>desktop-x</i><i>phone-x</i>", memoised.output_buffer.to_s.gsub(/\s+/, "")
+    assert_equal dense(plain.output_buffer), dense(memoised.output_buffer)
+    assert_equal "<i>desktop-x</i><i>phone-x</i>", dense(memoised.output_buffer)
   end
 
   # Bound partials emit no render_partial events, so the profiler is the replacement for the
@@ -316,6 +316,388 @@ class ViewBindTest < Minitest::Test
     ViewBind::Profiler.reset
   end
 
+  # --- resolver context -------------------------------------------------------------------
+  #
+  # A details key covers formats, locale and variants, and nothing else. Two lookup contexts
+  # that differ only in view paths or prefixes share one, so a cache keyed on it alone hands
+  # the second context the first one's template.
+
+  def test_respects_view_paths
+    plain = view
+    themed = view
+    themed.lookup_context.prepend_view_paths([alt_view_path])
+
+    plain.instance_eval { bind_render "fixtures/leaf", word: "x" }
+    themed.instance_eval { bind_render "fixtures/leaf", word: "x" }
+
+    assert_equal "<i>x</i>", squish(plain.output_buffer)
+    assert_equal "<i>alt-x</i>", squish(themed.output_buffer)
+  end
+
+  # The overridden path resolved first must not become everyone's answer either.
+  def test_respects_view_paths_in_either_order
+    themed = view
+    themed.lookup_context.prepend_view_paths([alt_view_path])
+    themed.instance_eval { bind_render "fixtures/leaf", word: "x" }
+
+    plain = view
+    plain.instance_eval { bind_render "fixtures/leaf", word: "x" }
+
+    assert_equal "<i>alt-x</i>", squish(themed.output_buffer)
+    assert_equal "<i>x</i>", squish(plain.output_buffer)
+  end
+
+  # A relative partial name is resolved against lookup_context.prefixes, which two
+  # controllers do not share.
+  def test_respects_prefixes_for_a_relative_path
+    a = view
+    a.lookup_context.prefixes = ["alpha"]
+    b = view
+    b.lookup_context.prefixes = ["beta"]
+
+    a.instance_eval { bind_render "card" }
+    b.instance_eval { bind_render "card" }
+
+    assert_equal "<i>alpha</i>", squish(a.output_buffer)
+    assert_equal "<i>beta</i>", squish(b.output_buffer)
+  end
+
+  def test_collection_respects_prefixes_for_a_relative_path
+    a = view
+    a.lookup_context.prefixes = ["alpha"]
+    b = view
+    b.lookup_context.prefixes = ["beta"]
+
+    a.instance_eval { bind_render_each "card", %w[x], as: :ignored }
+    b.instance_eval { bind_render_each "card", %w[x], as: :ignored }
+
+    assert_equal "<i>alpha</i>", squish(a.output_buffer)
+    assert_equal "<i>beta</i>", squish(b.output_buffer)
+  end
+
+  # Prefixes can change part-way through one view's render.
+  def test_notices_a_prefix_change_within_one_view
+    v = view
+    v.lookup_context.prefixes = ["alpha"]
+    v.instance_eval { bind_render "card" }
+    v.lookup_context.prefixes = ["beta"]
+    v.instance_eval { bind_render "card" }
+
+    assert_equal "<i>alpha</i><i>beta</i>", dense(v.output_buffer)
+  end
+
+  def test_matches_render_for_a_relative_path
+    bound = view
+    bound.lookup_context.prefixes = ["beta"]
+    bound.instance_eval { bind_render "card" }
+
+    plain = view
+    plain.lookup_context.prefixes = ["beta"]
+    assert_equal squish(plain.render("card")), squish(bound.output_buffer)
+  end
+
+  # CACHE.clear leaves a warmed view holding the map it memoised; the generation is what
+  # makes it rebuild. Ordinary reloads also replace the details key, which hides this.
+  def test_clear_cache_invalidates_a_warmed_view
+    v = view
+    before = ViewBind.bound_for_locals(v, "fixtures/leaf", { word: "x" })
+
+    ViewBind.clear_cache
+
+    after = ViewBind.bound_for_locals(v, "fixtures/leaf", { word: "x" })
+    refute_same before, after
+    refute_predicate ViewBind::CACHE, :empty?, "the rebuilt binding was not cached again"
+  end
+
+  # --- memo keys --------------------------------------------------------------------------
+
+  # A SafeBuffer and an equal String are eql? and hash alike, so an unmarked memo lets the
+  # first one rendered decide the escaping for both. Safe-first is the direction that emits
+  # attacker-controlled markup raw.
+  def test_memo_does_not_share_an_entry_between_safe_and_unsafe_strings
+    memoised = view
+    memoised.instance_eval { bind_render_memo "fixtures/leaf", word: "<b>u</b>".html_safe }
+    memoised.instance_eval { bind_render_memo "fixtures/leaf", word: "<b>u</b>" }
+
+    plain = view
+    plain.instance_eval { bind_render "fixtures/leaf", word: "<b>u</b>".html_safe }
+    plain.instance_eval { bind_render "fixtures/leaf", word: "<b>u</b>" }
+
+    assert_equal "<i><b>u</b></i><i>&lt;b&gt;u&lt;/b&gt;</i>", dense(memoised.output_buffer)
+    assert_equal dense(plain.output_buffer), dense(memoised.output_buffer)
+  end
+
+  def test_memo_does_not_share_an_entry_in_the_other_order
+    v = view
+    v.instance_eval { bind_render_memo "fixtures/leaf", word: "<b>u</b>" }
+    v.instance_eval { bind_render_memo "fixtures/leaf", word: "<b>u</b>".html_safe }
+
+    assert_equal "<i>&lt;b&gt;u&lt;/b&gt;</i><i><b>u</b></i>", dense(v.output_buffer)
+  end
+
+  # The same collision, one local along in a composite key.
+  def test_memo_separates_safe_and_unsafe_strings_among_several_locals
+    v = view
+    v.instance_eval { bind_render_memo "fixtures/pair", a: "<b>x</b>".html_safe, b: "y" }
+    v.instance_eval { bind_render_memo "fixtures/pair", a: "<b>x</b>", b: "y" }
+
+    assert_equal "<i><b>x</b>|y</i><i>&lt;b&gt;x&lt;/b&gt;|y</i>", dense(v.output_buffer)
+  end
+
+  # The safety mask lives beside the value rather than inside it, so no local can spell its
+  # way into another entry. A marker prefixed onto the value could be forged by input.
+  def test_memo_cannot_be_forged_by_a_value_shaped_like_a_safety_marker
+    v = view
+    v.instance_eval { bind_render_memo "fixtures/leaf", word: "<b>x</b>".html_safe }
+    v.instance_eval { bind_render_memo "fixtures/leaf", word: "\u0000html_safe:<b>x</b>" }
+
+    assert_equal "<i><b>x</b></i><i>\u0000html_safe:&lt;b&gt;x&lt;/b&gt;</i>", dense(v.output_buffer)
+  end
+
+  # An html_safe local is still worth memoising; marking it must not turn every call into a
+  # miss, or the helper stops doing its job for translated markup.
+  def test_memo_still_hits_for_a_repeated_safe_string
+    v = view
+    3.times { v.instance_eval { bind_render_memo "fixtures/side_effect", word: "x".html_safe } }
+    assert_equal "x", v.content_for(:counters).to_s
+  end
+
+  # A SafeBuffer that has been made unsafe escapes exactly like a String, so sharing is right.
+  def test_memo_shares_an_entry_with_an_unsafe_safe_buffer
+    buffer = ActiveSupport::SafeBuffer.new("<b>u</b>")
+    buffer.sub!("u", "u")
+    refute_predicate buffer, :html_safe?
+
+    v = view
+    v.instance_eval { bind_render_memo "fixtures/side_effect", word: buffer }
+    v.instance_eval { bind_render_memo "fixtures/side_effect", word: "<b>u</b>" }
+    assert_equal "x", v.content_for(:counters).to_s, "the unsafe buffer did not share the entry"
+  end
+
+  # Hash copies a bare String key; a String inside an Array key it does not. Mutating the
+  # string afterwards must not move the stored entry.
+  def test_memo_snapshots_string_values_inside_a_composite_key
+    word = +"x"
+    v = view
+    v.instance_eval { bind_render_memo "fixtures/pair", a: word, b: "y" }
+    word << "!"
+
+    assert_equal [["x", "y"]], memo_entries(v).keys, "the stored key followed the caller's string"
+
+    v.instance_eval { bind_render_memo "fixtures/pair", a: "x", b: "y" }
+    v.instance_eval { bind_render_memo "fixtures/pair", a: "x!", b: "y" }
+    assert_equal "<i>x|y</i><i>x|y</i><i>x!|y</i>", dense(v.output_buffer)
+  end
+
+  # Hash copies a key whose class is exactly String, but not a SafeBuffer, so the single-value
+  # key needs the same snapshot the composite one gets.
+  def test_memo_snapshots_a_safe_buffer_used_as_the_whole_key
+    word = ActiveSupport::SafeBuffer.new(+"x")
+    v = view
+    v.instance_eval { bind_render_memo "fixtures/leaf", word: word }
+    word << "!"
+
+    assert_equal ["x"], memo_entries(v).keys.map(&:to_s), "the stored key followed the caller's buffer"
+    assert_predicate memo_entries(v).keys.first, :frozen?
+  end
+
+  # The memo carries the same context defect as the shared cache when it keys on the details
+  # key alone.
+  def test_memo_respects_view_paths
+    plain = view
+    plain.instance_eval { bind_render_memo "fixtures/leaf", word: "x" }
+
+    themed = view
+    themed.lookup_context.prepend_view_paths([alt_view_path])
+    themed.instance_eval { bind_render_memo "fixtures/leaf", word: "x" }
+
+    assert_equal "<i>x</i>", squish(plain.output_buffer)
+    assert_equal "<i>alt-x</i>", squish(themed.output_buffer)
+  end
+
+  def test_memo_respects_a_prefix_change_within_one_view
+    v = view
+    v.lookup_context.prefixes = ["alpha"]
+    v.instance_eval { bind_render_memo "card" }
+    v.lookup_context.prefixes = ["beta"]
+    v.instance_eval { bind_render_memo "card" }
+
+    assert_equal "<i>alpha</i><i>beta</i>", dense(v.output_buffer)
+  end
+
+  # Numeric keys must not collapse either: 1 and 1.0 are ==, and a Hash key is eql?.
+  def test_memo_separates_equal_numbers_of_different_types
+    v = view
+    v.instance_eval { bind_render_memo "fixtures/leaf", word: 1 }
+    v.instance_eval { bind_render_memo "fixtures/leaf", word: 1.0 }
+    assert_equal "<i>1</i><i>1.0</i>", dense(v.output_buffer)
+  end
+
+  # --- dependency tracking ----------------------------------------------------------------
+
+  # The tracker is a regex over the source, so every documented call form has to be in it.
+  # A form it misses leaves the parent's fragment digest unchanged when the child is edited.
+  def test_tracker_finds_every_public_helper_form
+    forms = {
+      %q{<%= bind_render "fixtures/leaf" %>}                      => "bare bind_render",
+      %q{<%= bind_render("fixtures/leaf") %>}                     => "parenthesised bind_render",
+      %q{<%= bind_capture "fixtures/leaf" %>}                     => "bare bind_capture",
+      %q{<%= bind_capture("fixtures/leaf") %>}                    => "parenthesised bind_capture",
+      %q{<%= bind_render_memo "fixtures/leaf", word: x %>}        => "bare bind_render_memo",
+      %q{<%= bind_render_memo("fixtures/leaf", word: x) %>}       => "parenthesised bind_render_memo",
+      %q{<%= bind_render_each "fixtures/leaf", @x, as: :x %>}     => "bare bind_render_each",
+      %q{<%= bind_render_each("fixtures/leaf", @x, as: :x) %>}    => "parenthesised bind_render_each"
+    }
+    forms.each do |source, description|
+      assert_includes ViewBind::Tracker.call("t", erb_template(source)), "fixtures/leaf",
+                      "#{description} was not tracked"
+    end
+  end
+
+  def test_tracker_ignores_a_dynamic_path
+    assert_empty ViewBind::Tracker.call("t", erb_template(%q{<%= bind_render(path) %>}))
+  end
+
+  # A string literal on the line after an argument-less call is not that call's path.
+  def test_tracker_does_not_reach_across_a_line_break
+    source = %(<% bind_render %>\n<% x = "fixtures/leaf" %>)
+    assert_empty ViewBind::Tracker.call("t", erb_template(source))
+  end
+
+  # The end-to-end version. fixtures/digest_probe exists only for these two tests: it reaches
+  # fixtures/named through bind_render_memo and nothing else, so its digest can only move if
+  # that form is tracked.
+  def test_dependency_tracking_busts_digests_for_the_memo_form
+    assert_digest_changes "fixtures/digest_probe", Rails.root.join("views/fixtures/_named.html.erb")
+  end
+
+  # ...and reaches fixtures/digest_leaf only through a parenthesised bind_capture. Both
+  # fixtures exist solely for these tests, so the edit-and-restore below cannot leave another
+  # test asserting on markup this one changed.
+  def test_dependency_tracking_busts_digests_for_a_parenthesised_call
+    assert_digest_changes "fixtures/digest_probe", Rails.root.join("views/fixtures/_digest_leaf.html.erb")
+  end
+
+  # --- resolution paths not otherwise exercised ---------------------------------------------
+
+  # With template caching off, nothing is cached and every call re-resolves. bind_render_each
+  # takes the other entry point into the cache, so it needs its own pass over that branch.
+  def test_collection_resolves_every_call_when_template_caching_is_off
+    was = ActionView::Resolver.caching?
+    ActionView::Resolver.caching = false
+
+    v = view
+    v.instance_eval { bind_render_each "fixtures/item", %w[a], as: :item }
+
+    assert_equal "<li>a@0/1!</li>", squish(v.output_buffer)
+    assert_predicate ViewBind::CACHE, :empty?, "nothing should be cached with caching off"
+  ensure
+    ActionView::Resolver.caching = was
+  end
+
+  # The second call has to find the binding the first one stored rather than resolving again.
+  def test_collection_reuses_a_cached_binding
+    v = view
+    2.times { v.instance_eval { bind_render_each "fixtures/item", %w[a], as: :item } }
+
+    assert_equal "<li>a@0/1!</li><li>a@0/1!</li>", dense(v.output_buffer)
+    entries = ViewBind.bindings_for(v)["fixtures/item"]
+    assert_equal 1, entries.size, "the collection binding was resolved twice"
+  end
+
+  # A strict-locals partial cannot be called through its compiled method, so the collection
+  # loop has a second body that goes through Template#render for the whole collection.
+  def test_collection_supports_strict_locals
+    bound = view
+    bound.instance_eval { bind_render_each "fixtures/strict_item", %w[a b], as: :item }
+
+    assert_equal "<li>a</li><li>b</li>", dense(bound.output_buffer)
+    assert_equal dense(view.render(partial: "fixtures/strict_item", collection: %w[a b], as: :item)),
+                 dense(bound.output_buffer)
+  end
+
+  # Past the cap the partial still renders correctly, it just stops being remembered.
+  def test_memo_stops_storing_past_the_cap
+    limit = ViewBind::Helper::MEMO_LIMIT_PER_SHAPE
+    v = view
+    (limit + 1).times { |n| v.instance_eval { bind_render_memo "fixtures/leaf", word: "w#{n}" } }
+
+    assert_equal limit, memo_entries(v).size, "the cap did not hold"
+    assert_includes v.output_buffer.to_s, "<i>w#{limit}</i>", "the over-cap value did not render"
+  end
+
+  def test_profiler_summary_reports_how_many_partials_it_left_out
+    ViewBind.profile = true
+    ViewBind::Profiler.reset
+    v = view
+    v.instance_eval { bind_render "fixtures/leaf", word: "x" }
+    v.instance_eval { bind_render "fixtures/greeting" }
+
+    assert_match(/… and 1 more partial$/, ViewBind::Profiler.summary(limit: 1))
+
+    v.instance_eval { bind_render "fixtures/named", primary: "p" }
+    assert_match(/… and 2 more partials$/, ViewBind::Profiler.summary(limit: 1))
+  ensure
+    ViewBind.profile = false
+    ViewBind::Profiler.reset
+  end
+
+  # --- the railtie's per-request summary ----------------------------------------------------
+
+  def test_profiling_logs_one_summary_per_request
+    log = capture_rails_log do
+      ViewBind.profile = true
+      get "/page"
+    end
+
+    assert_match(/ViewBind: \d+ calls/, log)
+    assert_match(%r{fixtures/leaf}, log)
+  end
+
+  # Profiling on, but the action rendered no bound partial: there is nothing to say, and the
+  # railtie must not log an empty summary line.
+  def test_profiling_logs_nothing_for_a_request_without_bound_partials
+    log = capture_rails_log do
+      ViewBind.profile = true
+      assert_equal "<p>plain</p>", squish(get("/plain").response.body)
+    end
+
+    refute_match(/ViewBind:/, log)
+  end
+
+  # --- tracker registration edge cases ------------------------------------------------------
+
+  def test_tracker_default_follows_the_ruby_render_tracker
+    was = ActionView.render_tracker
+    ActionView.render_tracker = :ruby
+    assert_equal ActionView::DependencyTracker::RubyTracker, ViewBind::Tracker.default_tracker
+  ensure
+    ActionView.render_tracker = was
+  end
+
+  # DependencyTracker exposes no reader for a handler's tracker, so ours reaches for the
+  # registry directly. Every way that reach can come back empty has to end in nil, not raise.
+  def test_existing_tracker_is_nil_when_the_registry_cannot_be_indexed
+    swap_tracker_registry(Object.new) do
+      assert_nil ViewBind::Tracker.send(:existing_tracker_for, erb_handler)
+    end
+  end
+
+  def test_existing_tracker_is_nil_when_the_registry_already_holds_us
+    swap_tracker_registry({ erb_handler => ViewBind::Tracker }) do
+      assert_nil ViewBind::Tracker.send(:existing_tracker_for, erb_handler)
+    end
+  end
+
+  def test_existing_tracker_is_nil_when_the_registry_raises
+    registry = Object.new
+    registry.define_singleton_method(:[]) { |_handler| raise "registry unavailable" }
+
+    swap_tracker_registry(registry) do
+      assert_nil ViewBind::Tracker.send(:existing_tracker_for, erb_handler)
+    end
+  end
+
   def test_missing_partial_raises_missing_template
     v = view
     assert_raises(ActionView::MissingTemplate) { v.instance_eval { bind_render "fixtures/nope" } }
@@ -331,31 +713,16 @@ class ViewBindTest < Minitest::Test
   end
 
   def test_works_in_a_layout_and_nested_partials
-    session = ActionDispatch::Integration::Session.new(Rails.application)
-    session.host = "localhost"
-    session.get "/page"
+    session = get "/page"
     assert_equal 200, session.response.status
     assert_equal "<html><body><span>hello</span><main><p><i>deep</i></p></main></body></html>",
-                 session.response.body.gsub(/\s+/, "")
+                 dense(session.response.body)
   end
 
   # Editing a bound partial must change the digest of every template that binds it,
   # otherwise `cache` blocks upstream serve stale HTML.
   def test_dependency_tracking_busts_fragment_digests
-    leaf = Rails.root.join("views/fixtures/_leaf.html.erb")
-    original = File.read(leaf)
-    finder = -> { view.lookup_context }
-    digest = -> { ActionView::Digestor.digest(name: "fixtures/page", format: :html, finder: finder.call) }
-
-    before = digest.call
-    File.write(leaf, "#{original}<!-- changed -->")
-    ActionView::LookupContext::DetailsKey.clear
-    after = digest.call
-
-    refute_equal before, after
-  ensure
-    File.write(leaf, original)
-    ActionView::LookupContext::DetailsKey.clear
+    assert_digest_changes "fixtures/page", Rails.root.join("views/fixtures/_leaf.html.erb")
   end
 
   def test_tracker_default_matches_the_frameworks_own
@@ -399,9 +766,77 @@ class ViewBindTest < Minitest::Test
   end
 
   # Requiring the gem must not drag in ActionView internals before ActiveSupport exists.
+  # The child measures itself when COVERAGE is on: the railtie require is the one branch that
+  # can only be taken by a process where Rails::Railtie is undefined, and SimpleCov merges the
+  # child's result into the suite's by command name.
   def test_loads_without_rails
     lib = File.expand_path("../lib", __dir__)
-    ok = system(RbConfig.ruby, "-I", lib, "-e", 'require "view_bind"', out: File::NULL, err: File::NULL)
-    assert ok, "require \"view_bind\" failed outside of Rails"
+    # Single-quoted: every line is source for the child, not for this process.
+    program = <<~'RUBY'
+      if ENV["COVERAGE"]
+        require "simplecov"
+        SimpleCov.command_name "no-rails"
+        # Store the result for the parent to merge, but write no report: the parent owns
+        # coverage/ and warns when a second process overwrites what it just produced.
+        SimpleCov.formatter = Class.new { def format(_result) = nil }
+        SimpleCov.start { enable_coverage :branch }
+      end
+      raise "Rails was already loaded" if defined?(Rails::Railtie)
+
+      require "view_bind"
+    RUBY
+
+    # The child can fail for reasons other than the one under test -- it also loads SimpleCov
+    # and asserts Rails is absent -- so its stderr is what the failure message has to carry.
+    output, status = Open3.capture2e(RbConfig.ruby, "-I", lib, "-e", program)
+    assert status.success?, "the no-Rails child process failed:\n#{output}"
+  end
+
+  private
+
+  def alt_view_path = Rails.root.join("alt_views").to_s
+
+  # The railtie logs through Rails.logger; the app's own logger writes to IO::NULL at :fatal.
+  def capture_rails_log
+    io = StringIO.new
+    was = Rails.logger
+    Rails.logger = ActiveSupport::Logger.new(io)
+    yield
+    io.string
+  ensure
+    Rails.logger = was
+    ViewBind.profile = false
+    ViewBind::Profiler.reset
+  end
+
+  # Drives a real request through the app and returns the session, so the response is
+  # available to the caller.
+  def get(path)
+    session = ActionDispatch::Integration::Session.new(Rails.application)
+    session.host = "localhost"
+    session.get path
+    session
+  end
+
+  def erb_template(source)
+    Struct.new(:source, :handler, :virtual_path).new(source, erb_handler, "t")
+  end
+
+  # Digests `name`, edits `file`, and returns having asserted the digest moved.
+  def assert_digest_changes(name, file)
+    # Read before the begin: an ensure that fires on a failed read would write nil over the
+    # fixture and empty it.
+    original = File.read(file)
+    digest = -> { ActionView::Digestor.digest(name: name, format: :html, finder: view.lookup_context) }
+
+    begin
+      before = digest.call
+      File.write(file, "#{original}<!-- changed -->")
+      ActionView::LookupContext::DetailsKey.clear
+      refute_equal before, digest.call, "editing #{file.basename} did not move #{name}'s digest"
+    ensure
+      File.write(file, original)
+      ActionView::LookupContext::DetailsKey.clear
+    end
   end
 end

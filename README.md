@@ -228,6 +228,7 @@ goes wrong:
 | Locals, including strict locals | `test_passes_locals`, `test_supports_strict_locals` |
 | `_counter` / `_iteration` in collections | `test_collection_provides_counter_and_iteration` |
 | Per-locale / per-variant partials | `test_respects_locale` |
+| Per-view-path and per-prefix partials | `test_respects_view_paths`, `test_respects_prefixes_for_a_relative_path` |
 | Backtraces naming the real file and line | `test_backtrace_points_at_the_partial` |
 | Fragment cache digests busting on edits | `test_dependency_tracking_busts_fragment_digests` |
 | Works in a layout, and nested | `test_works_in_a_layout_and_nested_partials` |
@@ -239,8 +240,17 @@ goes wrong:
 | Memo keys on the locals shape, not just values | `test_memo_does_not_collide_on_the_value_alone` |
 | Memo behaves the same with caching on and off | `test_memo_behaves_the_same_with_and_without_template_caching` |
 | Memo respects a variant or locale change | `test_memo_respects_a_variant_change` |
+| Memo never shares an entry between safe and escaped strings | `test_memo_does_not_share_an_entry_between_safe_and_unsafe_strings` |
+| Every helper form is tracked for digests | `test_tracker_finds_every_public_helper_form` |
 | Memoised side effects run once, as documented | `test_memo_runs_side_effects_once` |
+| A strict-locals partial in a collection | `test_collection_supports_strict_locals` |
+| The railtie's per-request profile line | `test_profiling_logs_one_summary_per_request` |
 | The gem loads outside Rails | `test_loads_without_rails` |
+
+`rake coverage` runs the same suite under SimpleCov and fails below 100% line **and**
+branch coverage of `lib/`. The one branch a single process cannot reach — the railtie
+`require`, which is skipped only where `Rails::Railtie` is undefined — is covered by the
+child process in `test_loads_without_rails`, whose result is merged into the suite's.
 
 In development, templates are re-resolved on every call (guarded on
 `ActionView::Resolver.caching?`), so editing a partial works without a restart — and Rails'
@@ -292,9 +302,10 @@ production.
 
 - No `:layout`, `:spacer_template`, `:cached` or `:object` options. Use `render` where you need
   them — the two can be mixed freely in the same template.
-- The dependency tracker finds `bind_render "some/partial"` by literal string. A path built at
-  runtime is invisible to it, so a `cache` block above a dynamically bound partial can go stale.
-  Same caveat as Rails' own tracker with dynamic `render`.
+- The dependency tracker finds `bind_render "some/partial"` by literal string, in every helper
+  form and with or without parentheses. A path built at runtime is invisible to it, so a `cache`
+  block above a dynamically bound partial can go stale. Same caveat as Rails' own tracker with
+  dynamic `render`.
 - Dependency tracking is registered for ERB only. For another engine, add
   `ViewBind::Tracker.register_for(:haml)` in an initializer. Registration extends whatever
   tracker is already installed for that handler rather than replacing it.
@@ -307,9 +318,9 @@ production.
   takes whatever the partial returns, so it survives that. `capture` and `with_output_buffer`
   restore the buffer and are unaffected; only code that assigns the ivar and walks away is.
   Inside `bind_render_each` such an item takes the rest of the collection with it.
-- The resolved-template cache is not evicted. It is keyed per call site, per lookup details, so
-  it is bounded in practice — but passing a varying set of locals keys to the same partial grows
-  it.
+- The resolved-template cache is not evicted. It is keyed per call site, per resolver context
+  (lookup details, view paths and prefixes), so it is bounded in practice — but passing a varying
+  set of locals keys to the same partial grows it.
 
 ## When not to use it
 

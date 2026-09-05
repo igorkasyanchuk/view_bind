@@ -38,6 +38,10 @@ end
 normalise = ->(body) { body.sub(/rendered \d\d:\d\d:\d\d\.\d+/, "TIME") }
 
 ActiveRecord::Base.logger = nil
+# The dummy app turns profiling on in development so that browsing it shows the summary. That
+# would time every bind_render through Profiler.measure while leaving the baseline's `render`
+# untouched, so the documented development run would understate the gem it is measuring.
+ViewBind.profile = false
 counts = { queries: 0, observed_renders: 0 }
 attach_counters = lambda do
   ActiveSupport::Notifications.subscribe("sql.active_record") do |_, _, _, _, payload|

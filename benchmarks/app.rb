@@ -55,10 +55,13 @@ class BenchApp < Rails::Application
   config.eager_load = benchmarking
   config.enable_reloading = !benchmarking
   config.secret_key_base = "benchmark" * 8
-  # Keep benchmark runs quiet unless logging is explicitly requested.
-  config.log_level = ENV.fetch("LOG_LEVEL", benchmarking ? "fatal" : "debug")
+  # Keep benchmark runs quiet unless logging is explicitly requested. A blank LOG_LEVEL counts
+  # as unset: `LOG_LEVEL= bin/rails s` is how a variable exported in a shell profile gets
+  # cleared, and it would otherwise assign "" and fail to boot.
+  requested_log_level = ENV["LOG_LEVEL"].presence
+  config.log_level = requested_log_level || (benchmarking ? "fatal" : "debug")
   config.logger = ActiveSupport::Logger.new(
-    benchmarking && !ENV.key?("LOG_LEVEL") ? IO::NULL : $stdout
+    benchmarking && requested_log_level.nil? ? IO::NULL : $stdout
   )
   config.hosts.clear
   config.consider_all_requests_local = true

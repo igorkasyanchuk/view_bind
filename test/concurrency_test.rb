@@ -1,9 +1,14 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "timeout"
 
 class ConcurrencyTest < Minitest::Test
   include ViewHelpers
+
+  # Bounded, because every blocking call below is a place a lock-ordering bug would stop
+  # rather than fail: without this the suite hangs instead of reporting the deadlock it caught.
+  DEADLOCK_TIMEOUT = 60
 
   def test_concurrent_first_renders_keep_locals_and_memos_isolated
     ViewBind.clear_cache
@@ -20,12 +25,14 @@ class ConcurrencyTest < Minitest::Test
         end
       end
     end
-    8.times { ready.pop }
-    8.times { start << true }
+    Timeout.timeout(DEADLOCK_TIMEOUT) do
+      8.times { ready.pop }
+      8.times { start << true }
 
-    workers.each_with_index do |worker, index|
-      name = index.even? ? :primary : :secondary
-      assert_equal ["<i>#{name}=#{index}</i>"] * 25, worker.value
+      workers.each_with_index do |worker, index|
+        name = index.even? ? :primary : :secondary
+        assert_equal ["<i>#{name}=#{index}</i>"] * 25, worker.value
+      end
     end
   ensure
     workers&.each { |worker| worker.kill if worker.alive? }

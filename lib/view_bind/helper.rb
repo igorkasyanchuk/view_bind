@@ -49,7 +49,8 @@ module ViewBind
     # Render a partial and return its HTML instead of writing it to the buffer.
     #
     #   <% content_for :sidebar, bind_capture("shared/widget") %>
-    def bind_capture(path, **locals)
+    def bind_capture(path, **locals, &block)
+      raise ArgumentError, "bind_capture does not support a block; use render for the block form" if block
       capture { bind_render(path, **locals) }
     end
 

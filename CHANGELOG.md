@@ -2,6 +2,8 @@
 
 ## [0.1.0] - unreleased
 
+- `bind_capture` rejects unsupported blocks instead of silently dropping their content.
+- Dummy-app smoke checks clear inherited `LOG_LEVEL` for the unset-variable case.
 - Responsive publication layout for the dummy app, with equivalent output across all routes.
 - Reproducible request benchmarks with randomized rounds, median and range reporting,
   response validation, accurate query counts, configurable page size and raw JSON output.

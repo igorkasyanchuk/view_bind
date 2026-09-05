@@ -839,6 +839,7 @@ class ViewBindTest < Minitest::Test
   def test_block_form_raises_instead_of_being_ignored
     v = view
     assert_raises(ArgumentError) { v.instance_eval { bind_render("fixtures/greeting") { "body" } } }
+    assert_raises(ArgumentError) { v.instance_eval { bind_capture("fixtures/greeting") { "body" } } }
     assert_raises(ArgumentError) do
       v.instance_eval { bind_render_each("fixtures/item", %w[a], as: :item) { "body" } }
     end

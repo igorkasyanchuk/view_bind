@@ -47,7 +47,7 @@ task :smoke do
   # the render. Each runs in its own process because the settings are read once, at boot.
   [[nil, "fatal", true], ["", "fatal", true], ["info", "info", false]].each do |value, level, quiet|
     env = { "RAILS_ENV" => "production", "EXPECT_LEVEL" => level, "EXPECT_QUIET" => (quiet ? "1" : "0") }
-    env["LOG_LEVEL"] = value unless value.nil?
+    env["LOG_LEVEL"] = value
     sh(env, RbConfig.ruby, "-e", script) do |ok, _|
       abort "smoke failed for LOG_LEVEL=#{value.inspect}" unless ok
     end

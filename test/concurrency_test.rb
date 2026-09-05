@@ -9,6 +9,7 @@ class ConcurrencyTest < Minitest::Test
   # Bounded, because every blocking call below is a place a lock-ordering bug would stop
   # rather than fail: without this the suite hangs instead of reporting the deadlock it caught.
   DEADLOCK_TIMEOUT = 60
+  KILL_TIMEOUT = 5
 
   def test_concurrent_first_renders_keep_locals_and_memos_isolated
     ViewBind.clear_cache
@@ -36,7 +37,9 @@ class ConcurrencyTest < Minitest::Test
     end
   ensure
     workers&.each { |worker| worker.kill if worker.alive? }
-    workers&.each(&:join)
+    # Bounded like the joins above: a thread that ignores kill would otherwise hang the suite
+    # here instead, which is what the timeout exists to prevent.
+    workers&.each { |worker| worker.join(KILL_TIMEOUT) }
     ViewBind.clear_cache
   end
 end

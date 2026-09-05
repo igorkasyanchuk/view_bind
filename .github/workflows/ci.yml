@@ -31,6 +31,22 @@ jobs:
           bundler-cache: true
       - run: bundle exec rake test
 
+      # rake test boots the suite's own miniature app, so nothing above ever loads
+      # benchmarks/app.rb. Boot it here across the same Rails versions: a blank LOG_LEVEL
+      # once assigned "" and failed to boot, and no test could have caught it. Seeding the
+      # SQLite fixture takes about two seconds.
+      - name: Smoke-boot the benchmark app
+        run: |
+          bundle exec ruby -e 'require_relative "benchmarks/app"; abort "no rows" unless Post.count.positive?'
+          LOG_LEVEL= bundle exec ruby -e 'require_relative "benchmarks/app"
+            level = Rails.application.config.log_level
+            abort "blank LOG_LEVEL should mean unset, got #{level.inspect}" unless level == "fatal"'
+          LOG_LEVEL=info bundle exec ruby -e 'require_relative "benchmarks/app"
+            level = Rails.application.config.log_level
+            abort "LOG_LEVEL=info ignored, got #{level.inspect}" unless level == "info"'
+        env:
+          RAILS_ENV: production
+
   # One job owns the 100% gate: a version-guarded test is skipped on older Rails, which
   # would leave the branch it covers unreached there.
   coverage:

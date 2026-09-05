@@ -200,6 +200,13 @@ goes wrong:
 | Memo respects a variant or locale change | `test_memo_respects_a_variant_change` |
 | Memo never shares an entry between safe and escaped strings | `test_memo_does_not_share_an_entry_between_safe_and_unsafe_strings` |
 | Every helper form is tracked for digests | `test_tracker_finds_every_public_helper_form` |
+| Relative bound paths bust digests too | `test_dependency_tracking_busts_digests_for_a_relative_path` |
+| `clear_cache` invalidates a warmed view | `test_clear_cache_invalidates_a_warmed_view` |
+| A prefix edited in place is noticed | `test_notices_a_prefix_mutated_in_place` |
+| A nil prefix list still renders | `test_tolerates_nil_prefixes` |
+| A memo key cannot be forged by its value | `test_memo_cannot_be_forged_by_a_value_shaped_like_a_safety_marker` |
+| A SafeBuffer memo key gets its own copy | `test_memo_snapshots_a_safe_buffer_used_as_the_whole_key` |
+| A delegated memo call is timed at its own depth | `test_profiler_counts_a_delegated_memo_call_once` |
 | Memoised side effects run once, as documented | `test_memo_runs_side_effects_once` |
 | A strict-locals partial in a collection | `test_collection_supports_strict_locals` |
 | The railtie's per-request profile line | `test_profiling_logs_one_summary_per_request` |
@@ -312,7 +319,9 @@ bundle exec rake dummy
 ```
 
 Development writes normal Rails request, rendering and SQL logs to the terminal and enables
-ViewBind profiling summaries. Production disables profiling and discards logs by default;
+ViewBind profiling summaries when the app is *served*. `benchmarks/run.rb` turns profiling off
+in every environment, so that it never times bound renders through `Profiler.measure` while
+leaving the baseline's `render` untouched. Production disables profiling and discards logs by default;
 set `LOG_LEVEL=info` to write request logs to the terminal. Benchmark runs remain quiet unless
 `LOG_LEVEL` is explicitly set. Stop an existing server with Ctrl-C before restarting on the
 same port.

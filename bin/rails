@@ -1,0 +1,7 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+APP_PATH = File.expand_path("../benchmarks/app", __dir__)
+ENV["PIDFILE"] ||= File.expand_path("../benchmarks/tmp/pids/server.pid", __dir__)
+require "bundler/setup"
+require "rails/commands"

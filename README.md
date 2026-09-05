@@ -267,9 +267,21 @@ default, or PostgreSQL when `DB=postgres`. The templates share presentation copy
 and the same database workload across all rendering modes.
 
 ```sh
+bin/rails s
+# Open http://localhost:3000/?per=6 for a short visual preview.
+
+# Production caching, with request and completion logs:
+RAILS_ENV=production LOG_LEVEL=info bin/rails s
+
+# The original launcher is also available on port 9292:
 bundle exec rake dummy
-# Open http://localhost:9292/?per=6 for a short visual preview.
 ```
+
+Development writes normal Rails request, rendering and SQL logs to the terminal and enables
+ViewBind profiling summaries. Production disables profiling and discards logs by default;
+set `LOG_LEVEL=info` to write request logs to the terminal. Benchmark runs remain quiet unless
+`LOG_LEVEL` is explicitly set. Stop an existing server with Ctrl-C before restarting on the
+same port.
 
 | route | layout | view |
 | --- | --- | --- |

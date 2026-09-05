@@ -55,8 +55,11 @@ class BenchApp < Rails::Application
   config.eager_load = benchmarking
   config.enable_reloading = !benchmarking
   config.secret_key_base = "benchmark" * 8
-  config.logger = ActiveSupport::Logger.new(IO::NULL)
-  config.log_level = :fatal
+  # Keep benchmark runs quiet unless logging is explicitly requested.
+  config.log_level = ENV.fetch("LOG_LEVEL", benchmarking ? "fatal" : "debug")
+  config.logger = ActiveSupport::Logger.new(
+    benchmarking && !ENV.key?("LOG_LEVEL") ? IO::NULL : $stdout
+  )
   config.hosts.clear
   config.consider_all_requests_local = true
   config.action_view.cache_template_loading = benchmarking
@@ -116,11 +119,12 @@ class PagesController < ActionController::Base
   def default_render = nil
 end
 
+ViewBind.profile = Rails.env.development?
 Rails.application.initialize!
 
 # The schema and rows go in after boot: Rails opens its own connection from
 # config/database.yml, and every connection to ":memory:" is a database of its own.
-ActiveRecord::Base.logger = nil
+ActiveRecord::Base.logger = nil if Rails.env.production?
 ActiveRecord::Migration.verbose = false
 
 # Only build the schema and rows when they are not already there. `rake dummy` and

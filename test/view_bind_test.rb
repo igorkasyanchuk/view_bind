@@ -722,10 +722,30 @@ class ViewBindTest < Minitest::Test
                  ViewBind::Tracker.call("audit/plain", erb_template(source))
   end
 
+  # A template with no directory component of its own. Rails' tracker produces a leading
+  # slash here; matching it is what keeps the two digests agreeing.
+  def test_tracker_matches_rails_for_a_relative_path_in_a_top_level_template
+    assert_equal ViewBind::Tracker.call("page", erb_template(%q{<%= render "card" %>})),
+                 ViewBind::Tracker.call("page", erb_template(%q{<%= bind_render "card" %>}))
+  end
+
   # ...and the digest has to move when that partial is edited. audit/bound reaches audit/card
   # only by the relative name.
   def test_dependency_tracking_busts_digests_for_a_relative_path
     assert_digest_changes "audit/bound", Rails.root.join("views/audit/_card.html.erb")
+  end
+
+  # prefixes is a public accessor and Rails resolves against a nil list perfectly well, so
+  # snapshotting it must not be where that stops working.
+  def test_tolerates_nil_prefixes
+    bound = view
+    bound.lookup_context.prefixes = nil
+    bound.instance_eval { bind_render "fixtures/leaf", word: "x" }
+
+    plain = view
+    plain.lookup_context.prefixes = nil
+    assert_equal squish(plain.render("fixtures/leaf", word: "x")), squish(bound.output_buffer)
+    assert_equal "<i>x</i>", squish(bound.output_buffer)
   end
 
   # A prefix string edited in place rather than replaced: a shallow copy of the array shares

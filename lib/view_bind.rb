@@ -107,7 +107,8 @@ module ViewBind
 
       # prefixes is a plain Array the caller owns; a copy is what makes the check above catch
       # an in-place edit, and keeps the CACHE key from rotting under one.
-      context = [lookup.details_key, lookup.view_paths, snapshot(lookup.prefixes), @generation, nil]
+      context = [lookup.details_key, lookup.view_paths,
+                 snapshot_prefixes(lookup.prefixes), @generation, nil]
       view.instance_variable_set(:@__view_bind_context, context)
       context
     end
@@ -147,8 +148,12 @@ module ViewBind
     # -- would change this snapshot along with the live one, the check in #context_for would
     # see no difference, and the view would go on rendering the partial it first resolved.
     # The CACHE key holds these strings too, so they have to stop moving.
-    def snapshot(prefixes)
-      prefixes.map { |prefix| prefix.frozen? ? prefix : prefix.dup.freeze }
+    #
+    # nil passes straight through: `prefixes` is a public accessor and Rails resolves a name
+    # against a nil prefix list perfectly well (see LookupContext#normalize_name), so this
+    # must not be where that stops working.
+    def snapshot_prefixes(prefixes)
+      prefixes&.map { |prefix| prefix.frozen? ? prefix : prefix.dup.freeze }
     end
 
     def build(view, path, keys)

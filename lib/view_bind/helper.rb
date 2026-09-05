@@ -97,7 +97,7 @@ module ViewBind
 
 
       if bound.slow
-        measured_each(path, collection.size) do
+        measuring_collection(path, collection.size) do
           collection.each do |item|
             locals[as]      = item
             locals[counter] = partial_iteration.index
@@ -118,7 +118,7 @@ module ViewBind
       render_method     = bound.unbound_method
 
       begin
-        measured_each(path, collection.size) do
+        measuring_collection(path, collection.size) do
           collection.each do |item|
             locals[as]      = item
             locals[counter] = partial_iteration.index
@@ -138,10 +138,10 @@ module ViewBind
 
     private
 
-    # Runs a collection loop, timed as one row of `size` renders when profiling is on. Both
+    # Runs the block, timed as one row of `size` renders when profiling is on. Both collection
     # loop bodies go through here: a strict-locals collection is still a supported render, so
     # leaving it out made the summary silently disagree with the page.
-    def measured_each(path, size)
+    def measuring_collection(path, size)
       return yield unless ViewBind.profile?
 
       ViewBind::Profiler.measure(path, count: size) { yield }

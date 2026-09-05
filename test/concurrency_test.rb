@@ -9,7 +9,7 @@ class ConcurrencyTest < Minitest::Test
   # Bounded, because every blocking call below is a place a lock-ordering bug would stop
   # rather than fail: without this the suite hangs instead of reporting the deadlock it caught.
   DEADLOCK_TIMEOUT = 60
-  KILL_TIMEOUT = 5
+  CLEANUP_TIMEOUT = 5
 
   def test_concurrent_first_renders_keep_locals_and_memos_isolated
     ViewBind.clear_cache
@@ -37,9 +37,16 @@ class ConcurrencyTest < Minitest::Test
     end
   ensure
     workers&.each { |worker| worker.kill if worker.alive? }
-    # Bounded like the joins above: a thread that ignores kill would otherwise hang the suite
-    # here instead, which is what the timeout exists to prevent.
-    workers&.each { |worker| worker.join(KILL_TIMEOUT) }
+    # One deadline for the whole cleanup rather than one per thread: a worker that ignores
+    # kill must not hang the suite here, which is what DEADLOCK_TIMEOUT exists to prevent, and
+    # eight sequential per-thread waits would add eight times the bound instead of one.
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + CLEANUP_TIMEOUT
+    undead = workers&.reject do |worker|
+      worker.join([deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC), 0].max)
+    end
+    # Said out loud: an abandoned thread still holds whatever it was holding, and the next
+    # test to fail would otherwise look like the culprit.
+    warn "#{undead.size} worker thread(s) survived kill" if undead&.any?
     ViewBind.clear_cache
   end
 end

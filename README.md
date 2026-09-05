@@ -319,12 +319,14 @@ bundle exec rake dummy
 ```
 
 Development writes normal Rails request, rendering and SQL logs to the terminal and enables
-ViewBind profiling summaries when the app is *served*. `benchmarks/run.rb` turns profiling off
-in every environment, so that it never times bound renders through `Profiler.measure` while
-leaving the baseline's `render` untouched. Production disables profiling and discards logs by default;
-set `LOG_LEVEL=info` to write request logs to the terminal. Benchmark runs remain quiet unless
-`LOG_LEVEL` is explicitly set. Stop an existing server with Ctrl-C before restarting on the
-same port.
+ViewBind profiling summaries. Production disables profiling and discards logs by default; set
+`LOG_LEVEL=info` to write request logs to the terminal. Stop an existing server with Ctrl-C
+before restarting on the same port.
+
+Benchmarking is separate: `benchmarks/run.rb` turns profiling off in every environment, so it
+never times bound renders through `Profiler.measure` while leaving the baseline's `render`
+untouched, and runs stay quiet unless `LOG_LEVEL` is set. `bundle exec rake smoke` checks that
+logging configuration without running a benchmark.
 
 | route | layout | view |
 | --- | --- | --- |

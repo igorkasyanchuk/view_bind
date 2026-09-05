@@ -1,8 +1,8 @@
 # Signatures for the public API. ActionView objects are untyped: a view context, a Template
 # and a LookupContext have no shipped RBS, and describing them here would be guesswork.
 #
-# ViewBind::Railtie is deliberately absent for the same reason. It subclasses
-# ::Rails::Railtie, which ships no signature either, and declaring it without that superclass
+# ViewBind::Railtie is absent for a narrower reason: `rbs validate` rejects it. It subclasses
+# ::Rails::Railtie, which ships no signature, and declaring the class without that superclass
 # would assert it inherits from Object -- a worse answer than no answer. Add it here if and
 # when a Rails RBS is available.
 module ViewBind

@@ -55,7 +55,7 @@ Changing the HTML, runtime, database or profiling configuration requires a new m
 - Every regression found in the audits of this revision has a test in the normal suite: see
   the behaviour table in the main README, which names the test covering each one. A concurrent
   first-render test checks locals and per-view memo isolation.
-- The gem builds with runtime files, README, changelog, license and type signature.
+- The gem builds with runtime files, README, changelog and license.
 
 No remaining blocker was found for the tested Ruby/Rails configurations and documented ERB
 usage. This does not certify every application or future Rails version: the gem uses private

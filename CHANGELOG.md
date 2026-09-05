@@ -6,7 +6,7 @@
 - Reproducible request benchmarks with randomized rounds, median and range reporting,
   response validation, accurate query counts, configurable page size and raw JSON output.
 - Concurrent first-render and per-view memo isolation regression coverage.
-- Include the changelog and type signature in the built gem.
+- Include the changelog in the built gem.
 
 - `bind_render` and `bind_render_each`: render a partial through its own compiled method.
 - Dependency tracker so `cache` digests still bust when a bound partial changes.

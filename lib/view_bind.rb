@@ -107,7 +107,7 @@ module ViewBind
 
       # prefixes is a plain Array the caller owns; a copy is what makes the check above catch
       # an in-place edit, and keeps the CACHE key from rotting under one.
-      context = [lookup.details_key, lookup.view_paths, lookup.prefixes.dup, @generation, nil]
+      context = [lookup.details_key, lookup.view_paths, snapshot(lookup.prefixes), @generation, nil]
       view.instance_variable_set(:@__view_bind_context, context)
       context
     end
@@ -141,6 +141,15 @@ module ViewBind
     end
 
     private
+
+    # Copies the array *and* its strings. A shallow dup shares the elements, so a caller that
+    # mutates a prefix in place -- `prefix.replace("beta")` rather than assigning a new array
+    # -- would change this snapshot along with the live one, the check in #context_for would
+    # see no difference, and the view would go on rendering the partial it first resolved.
+    # The CACHE key holds these strings too, so they have to stop moving.
+    def snapshot(prefixes)
+      prefixes.map { |prefix| prefix.frozen? ? prefix : prefix.dup.freeze }
+    end
 
     def build(view, path, keys)
       template = resolve(view, path, keys)

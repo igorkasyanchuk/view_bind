@@ -97,11 +97,13 @@ module ViewBind
 
 
       if bound.slow
-        collection.each do |item|
-          locals[as]      = item
-          locals[counter] = partial_iteration.index
-          bound.template.render(self, locals, buffer, implicit_locals: [counter, iteration])
-          partial_iteration.iterate!
+        measured_each(path, collection.size) do
+          collection.each do |item|
+            locals[as]      = item
+            locals[counter] = partial_iteration.index
+            bound.template.render(self, locals, buffer, implicit_locals: [counter, iteration])
+            partial_iteration.iterate!
+          end
         end
         return nil
       end
@@ -115,20 +117,14 @@ module ViewBind
       @output_buffer    = buffer
       render_method     = bound.unbound_method
 
-      each_item = lambda do
-        collection.each do |item|
-          locals[as]      = item
-          locals[counter] = partial_iteration.index
-          render_method.bind_call(self, locals, buffer)
-          partial_iteration.iterate!
-        end
-      end
-
       begin
-        if ViewBind.profile?
-          ViewBind::Profiler.measure(path, count: collection.size) { each_item.call }
-        else
-          each_item.call
+        measured_each(path, collection.size) do
+          collection.each do |item|
+            locals[as]      = item
+            locals[counter] = partial_iteration.index
+            render_method.bind_call(self, locals, buffer)
+            partial_iteration.iterate!
+          end
         end
       rescue StandardError => e
         bound.template.send(:handle_render_error, self, e)
@@ -142,9 +138,18 @@ module ViewBind
 
     private
 
-    # Walks the memo, appends the markup and reports what happened: true for a hit, false for
-    # a miss, :delegated when the locals cannot be keyed on and the call went to bind_render,
-    # which measures itself.
+    # Runs a collection loop, timed as one row of `size` renders when profiling is on. Both
+    # loop bodies go through here: a strict-locals collection is still a supported render, so
+    # leaving it out made the summary silently disagree with the page.
+    def measured_each(path, size)
+      return yield unless ViewBind.profile?
+
+      ViewBind::Profiler.measure(path, count: size) { yield }
+    end
+
+    # Walks the memo, appends the markup and reports whether the call was a hit. A partial
+    # whose locals cannot be keyed on renders here too rather than being handed back to
+    # bind_render, so that the one measurement wrapping this call is the one that records it.
     def memo_render(path, locals)
       values = locals.values
       # No block, no intermediate array: the type test is on the hot path of every call.
@@ -165,8 +170,11 @@ module ViewBind
           i += 1
         when Symbol, Numeric, true, false, nil then i += 1
         else
-          bind_render(path, **locals)
-          return :delegated
+          # Going back through bind_render would time this render one level deeper than it
+          # really is, and its own measurement would then be discarded as nested: the row
+          # showed the elapsed time but the header total counted none of it.
+          render_bound(ViewBind.bound_for_locals(self, path, locals), locals)
+          return false
         end
       end
 

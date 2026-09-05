@@ -38,11 +38,11 @@ module ViewBind
       def call(name, template, view_paths = nil)
         inherited = wrapped[template.handler]
         base = inherited || default_tracker
-        base.call(name, template, view_paths) | template.source.scan(DIRECTIVE).flatten
+        base.call(name, template, view_paths) | bound_dependencies(name, template)
       end
 
-      # Rails' default for ERB. Named `:ruby` (AST) from Rails 8; earlier versions only ship
-      # the regex tracker, and ActionView.render_tracker does not exist there at all.
+      # Rails' default for ERB. Named `:ruby` (AST) from Rails 8.1; 7.1 and 8.0 only ship the
+      # regex tracker, and ActionView.render_tracker does not exist there at all.
       def default_tracker
         # Reachable before the railtie's on_load hook has fired -- an app with eager_load
         # off has not necessarily touched ActionView::DependencyTracker yet.
@@ -56,6 +56,18 @@ module ViewBind
       end
 
       private
+
+      # The paths this template binds, resolved the way the renderer resolves them: a name
+      # with no slash is relative to the template's own directory, so `bind_render "card"`
+      # inside `audit/bound` depends on `audit/card`. Reported verbatim it names a partial
+      # the digestor cannot find, and the parent's fragment then survives an edit to the
+      # child. Rails' ERB and Ruby trackers normalise identically.
+      def bound_dependencies(name, template)
+        directory = name.split("/")[0..-2].join("/")
+        template.source.scan(DIRECTIVE).flatten.map do |path|
+          path.include?("/") ? path : "#{directory}/#{path}"
+        end
+      end
 
       # DependencyTracker exposes no reader for a handler's tracker, so this reaches for the
       # registry directly and falls back to the framework default if that ever changes.

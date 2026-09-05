@@ -32,20 +32,17 @@ module ViewBind
                count: count, memo_hits: memo_hits, top_level: depth.zero?)
       end
 
-      # Same as #measure, for bind_render_memo: whether the call was a hit is only known
-      # once the block has run, so the block reports it by returning true (hit), false (miss)
-      # or :delegated when the call was handed to bind_render, which measures itself.
+      # Same as #measure, for bind_render_memo: whether the call was a hit is only known once
+      # the block has run, so the block reports it by returning true (hit) or false (miss).
       def measure_memo(path)
         depth = Thread.current[DEPTH] || 0
         Thread.current[DEPTH] = depth + 1
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        result = yield
+        hit = yield
       ensure
         Thread.current[DEPTH] = depth
-        unless result == :delegated
-          record(path, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started,
-                 memo_hits: result ? 1 : 0, top_level: depth.zero?)
-        end
+        record(path, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started,
+               memo_hits: hit ? 1 : 0, top_level: depth.zero?)
       end
 
       # count: how many renders this call represents (a collection counts as its size).

@@ -13,3 +13,4 @@ benchmarks/tmp/
 # пояснення публікуються як артефакти, у репозиторії не потрібні
 docs/
 coverage/
+gemfiles/*.lock

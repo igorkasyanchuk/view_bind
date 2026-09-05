@@ -310,7 +310,14 @@ class ViewBindTest < Minitest::Test
     v = view
     v.instance_eval { bind_render_memo "fixtures/leaf", word: ["not", "keyable"] }
 
-    assert_match(/ViewBind: 1 calls/, ViewBind::Profiler.summary)
+    summary = ViewBind::Profiler.summary
+    assert_match(/ViewBind: 1 calls/, summary)
+    # The header totals outermost calls only. This call is outermost, so timing it one level
+    # deeper would leave the header at 0.00ms while the row showed the real elapsed time.
+    header = summary.lines.first[/([\d.]+)ms/, 1].to_f
+    row    = summary.lines[1][/([\d.]+)ms/, 1].to_f
+    assert_in_delta row, header, 0.01, "the delegated render did not reach the header total"
+    assert_operator header, :>, 0
   ensure
     ViewBind.profile = false
     ViewBind::Profiler.reset
@@ -668,11 +675,19 @@ class ViewBindTest < Minitest::Test
   # --- tracker registration edge cases ------------------------------------------------------
 
   def test_tracker_default_follows_the_ruby_render_tracker
+    # ActionView.render_tracker arrived in Rails 8.1 -- 7.1 and 8.0 ship only the regex
+    # tracker -- which is why default_tracker asks respond_to? before reading it.
+    skip "ActionView.render_tracker is Rails 8.1+" unless ActionView.respond_to?(:render_tracker)
+
+    # The restore lives inside a begin rather than on the method: a method-level ensure runs
+    # for the skip above too, and would bury it under a NoMethodError from the writer.
     was = ActionView.render_tracker
-    ActionView.render_tracker = :ruby
-    assert_equal ActionView::DependencyTracker::RubyTracker, ViewBind::Tracker.default_tracker
-  ensure
-    ActionView.render_tracker = was
+    begin
+      ActionView.render_tracker = :ruby
+      assert_equal ActionView::DependencyTracker::RubyTracker, ViewBind::Tracker.default_tracker
+    ensure
+      ActionView.render_tracker = was
+    end
   end
 
   # DependencyTracker exposes no reader for a handler's tracker, so ours reaches for the
@@ -696,6 +711,50 @@ class ViewBindTest < Minitest::Test
     swap_tracker_registry(registry) do
       assert_nil ViewBind::Tracker.send(:existing_tracker_for, erb_handler)
     end
+  end
+
+  # A path with no slash is resolved against the template's own directory at render time, so
+  # the dependency has to name it the same way or the digestor cannot find the partial.
+  def test_tracker_resolves_a_relative_path_against_the_template_directory
+    source = %q{<%= bind_render "card" %>}
+    assert_equal ["audit/card"], ViewBind::Tracker.call("audit/bound", erb_template(source))
+    assert_equal ViewBind::Tracker.call("audit/plain", erb_template(%q{<%= render "card" %>})),
+                 ViewBind::Tracker.call("audit/plain", erb_template(source))
+  end
+
+  # ...and the digest has to move when that partial is edited. audit/bound reaches audit/card
+  # only by the relative name.
+  def test_dependency_tracking_busts_digests_for_a_relative_path
+    assert_digest_changes "audit/bound", Rails.root.join("views/audit/_card.html.erb")
+  end
+
+  # A prefix string edited in place rather than replaced: a shallow copy of the array shares
+  # the string, so the snapshot moves with the original and the change goes unnoticed.
+  def test_notices_a_prefix_mutated_in_place
+    prefix = +"alpha"
+    v = view
+    v.lookup_context.prefixes = [prefix]
+    v.instance_eval { bind_render "card" }
+    prefix.replace("beta")
+    v.instance_eval { bind_render "card" }
+
+    assert_equal "<i>alpha</i><i>beta</i>", dense(v.output_buffer)
+  end
+
+  # A strict-locals collection renders through Template#render, which is still a bound render
+  # and still has to appear in the summary.
+  def test_profiler_measures_a_strict_locals_collection
+    ViewBind.profile = true
+    ViewBind::Profiler.reset
+    v = view
+    v.instance_eval { bind_render_each "fixtures/strict_item", %w[a b], as: :item }
+
+    summary = ViewBind::Profiler.summary
+    assert_match(/ViewBind: 2 calls/, summary)
+    assert_match(%r{fixtures/strict_item\s+x2}, summary)
+  ensure
+    ViewBind.profile = false
+    ViewBind::Profiler.reset
   end
 
   def test_missing_partial_raises_missing_template

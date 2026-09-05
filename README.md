@@ -252,6 +252,12 @@ branch coverage of `lib/`. The one branch a single process cannot reach — the 
 `require`, which is skipped only where `Rails::Railtie` is undefined — is covered by the
 child process in `test_loads_without_rails`, whose result is merged into the suite's.
 
+CI runs the suite against Rails 7.1, 8.0 and 8.1 (`gemfiles/`), because the fast path calls
+ActionView internals that move between versions. The dependency is left open at
+`actionview >= 7.1` rather than capped: `ViewBind.fast_path_available?` checks for the three
+private methods at boot and sends every partial through `Template#render` if a future Rails
+renames one, so a new major degrades instead of breaking.
+
 In development, templates are re-resolved on every call (guarded on
 `ActionView::Resolver.caching?`), so editing a partial works without a restart — and Rails'
 debug error page is unchanged. A `NoMethodError` inside a bound partial reports:
@@ -303,7 +309,8 @@ production.
 - No `:layout`, `:spacer_template`, `:cached` or `:object` options. Use `render` where you need
   them — the two can be mixed freely in the same template.
 - The dependency tracker finds `bind_render "some/partial"` by literal string, in every helper
-  form and with or without parentheses. A path built at runtime is invisible to it, so a `cache`
+  form and with or without parentheses, and resolves a relative name against the template's own
+  directory the way the renderer does. A path built at runtime is invisible to it, so a `cache`
   block above a dynamically bound partial can go stale. Same caveat as Rails' own tracker with
   dynamic `render`.
 - Dependency tracking is registered for ERB only. For another engine, add

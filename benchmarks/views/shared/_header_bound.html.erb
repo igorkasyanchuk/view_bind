@@ -1,9 +1,7 @@
 <header class="site-header">
-  <a class="brand" href="/">ViewBind Bench</a>
-  <%= bind_render "shared/nav_bound", current_path: current_path %>
-  <span class="totals"><%= @totals[:posts] %> posts · <%= @totals[:comments] %> comments</span>
-  <div class="user">
-    <%= bind_render "shared/avatar", name: user %>
-    <%= bind_render "shared/button", label: "Sign out", style: "ghost" %>
+  <div class="header-inner">
+    <a class="brand" href="/?per=6"><span class="brand-mark" aria-hidden="true">b</span><span>the build<small>CODE. CRAFT. CULTURE.</small></span></a>
+    <%= bind_render "shared/nav_bound", current_path: current_path %>
+    <div class="user"><span class="user-name">Hello, <%= user %></span><%= bind_render "shared/avatar", name: user %><%= bind_render "shared/button", label: "Sign out", style: "ghost" %></div>
   </div>
 </header>

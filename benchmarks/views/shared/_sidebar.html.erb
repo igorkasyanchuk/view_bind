@@ -1,4 +1,11 @@
-<aside class="sidebar">
+<aside class="sidebar" aria-label="Topics and community">
+  <section class="sidebar-intro" id="community">
+    <span class="eyebrow">Better, together</span>
+    <h3>A community<br>of curious minds.</h3>
+    <p>Fresh perspectives from people building the next thing. Pull up a chair.</p>
+    <div class="community-stats"><div><strong><%= number_with_delimiter(@totals[:posts]) %></strong><span>Stories shared</span></div><div><strong><%= number_with_delimiter(@totals[:comments]) %></strong><span>Conversations</span></div></div>
+  </section>
+  <div class="section-heading" id="topics"><h2>Explore the community</h2></div>
   <% WIDGETS.each do |title, items| %><%= render "shared/widget", title: title, items: items %><% end %>
   <section class="widget">
     <h4>Top categories</h4>

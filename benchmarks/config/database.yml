@@ -1,5 +1,5 @@
-# Two backends, one benchmark. Default is SQLite in memory, so a run needs nothing
-# installed and always starts from the same rows:
+# Two backends, one benchmark. Default is a persistent SQLite file; the dummy app
+# creates the sample schema and reuses its rows on subsequent runs:
 #
 #   bundle exec rake bench
 #

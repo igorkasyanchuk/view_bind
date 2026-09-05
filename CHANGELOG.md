@@ -2,6 +2,12 @@
 
 ## [0.1.0] - unreleased
 
+- Responsive publication layout for the dummy app, with equivalent output across all routes.
+- Reproducible request benchmarks with randomized rounds, median and range reporting,
+  response validation, accurate query counts, configurable page size and raw JSON output.
+- Concurrent first-render and per-view memo isolation regression coverage.
+- Include the changelog and type signature in the built gem.
+
 - `bind_render` and `bind_render_each`: render a partial through its own compiled method.
 - Dependency tracker so `cache` digests still bust when a bound partial changes.
 - Lookup cache keyed by the whole resolver context — `details_key`, view paths and prefixes —

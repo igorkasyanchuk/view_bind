@@ -1,0 +1,309 @@
+{
+  "metadata": {
+    "gem_version": "0.1.0",
+    "ruby": "ruby 3.4.4 (2025-05-14 revision a38531fd3f) +YJIT +PRISM [arm64-darwin24]",
+    "rails": "8.1.3.1",
+    "database": "SQLite",
+    "environment": "production",
+    "yjit": true,
+    "eager_load": true,
+    "cache_template_loading": true,
+    "reloading": false,
+    "posts_per_page": 20,
+    "posts": 2000,
+    "comments": 6000,
+    "rounds": 9,
+    "requests_per_round": 20,
+    "warmups_per_case": 15,
+    "seed": 20260905,
+    "instrumentation": false,
+    "verified_html_bytes": 39213
+  },
+  "results": {
+    "render everywhere (baseline)": {
+      "path": "/",
+      "median_ms": 2.065749978646636,
+      "min_ms": 2.015100000426173,
+      "max_ms": 2.1342499647289515,
+      "median_objects": 11061.95,
+      "median_gc_ms": 0.1,
+      "queries": 10,
+      "observed_renders": 322,
+      "samples": [
+        {
+          "ms": 2.104699984192848,
+          "objects": 11061.95,
+          "gc_ms": 0.1
+        },
+        {
+          "ms": 2.0597499795258045,
+          "objects": 11061.95,
+          "gc_ms": 0.1
+        },
+        {
+          "ms": 2.1000999957323074,
+          "objects": 11061.95,
+          "gc_ms": 0.1
+        },
+        {
+          "ms": 2.0722500048577785,
+          "objects": 11061.95,
+          "gc_ms": 0.1
+        },
+        {
+          "ms": 2.065749978646636,
+          "objects": 11061.95,
+          "gc_ms": 0.1
+        },
+        {
+          "ms": 2.0642999559640884,
+          "objects": 11061.95,
+          "gc_ms": 0.1
+        },
+        {
+          "ms": 2.015100000426173,
+          "objects": 11061.95,
+          "gc_ms": 0.1
+        },
+        {
+          "ms": 2.1342499647289515,
+          "objects": 11061.95,
+          "gc_ms": 0.1
+        },
+        {
+          "ms": 2.037100028246641,
+          "objects": 11061.95,
+          "gc_ms": 0.1
+        }
+      ]
+    },
+    "bind_render in the view": {
+      "path": "/bind_view",
+      "median_ms": 1.5546000096946955,
+      "min_ms": 1.5189999714493752,
+      "max_ms": 1.7032500356435776,
+      "median_objects": 6387.6,
+      "median_gc_ms": 0.0,
+      "queries": 10,
+      "observed_renders": 62,
+      "samples": [
+        {
+          "ms": 1.577599998563528,
+          "objects": 6387.6,
+          "gc_ms": 0.05
+        },
+        {
+          "ms": 1.566349994391203,
+          "objects": 6387.6,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.5546000096946955,
+          "objects": 6387.6,
+          "gc_ms": 0.05
+        },
+        {
+          "ms": 1.5509500168263912,
+          "objects": 6387.6,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.5189999714493752,
+          "objects": 6387.6,
+          "gc_ms": 0.05
+        },
+        {
+          "ms": 1.5229499898850918,
+          "objects": 6387.6,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.6222999896854162,
+          "objects": 6387.6,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.7032500356435776,
+          "objects": 6387.6,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.5361000318080187,
+          "objects": 6387.6,
+          "gc_ms": 0.05
+        }
+      ]
+    },
+    "bind_render in the layout": {
+      "path": "/bind_layout",
+      "median_ms": 1.998150022700429,
+      "min_ms": 1.9321999978274107,
+      "max_ms": 2.081350004300475,
+      "median_objects": 10039.7,
+      "median_gc_ms": 0.1,
+      "queries": 10,
+      "observed_renders": 261,
+      "samples": [
+        {
+          "ms": 1.9971500150859356,
+          "objects": 10040.05,
+          "gc_ms": 0.05
+        },
+        {
+          "ms": 1.9321999978274107,
+          "objects": 10039.7,
+          "gc_ms": 0.1
+        },
+        {
+          "ms": 1.9413999747484922,
+          "objects": 10039.7,
+          "gc_ms": 0.1
+        },
+        {
+          "ms": 2.041100012138486,
+          "objects": 10039.7,
+          "gc_ms": 0.1
+        },
+        {
+          "ms": 2.081350004300475,
+          "objects": 10039.7,
+          "gc_ms": 0.1
+        },
+        {
+          "ms": 1.9330500159412622,
+          "objects": 10039.7,
+          "gc_ms": 0.05
+        },
+        {
+          "ms": 2.0295499823987484,
+          "objects": 10039.7,
+          "gc_ms": 0.1
+        },
+        {
+          "ms": 1.998150022700429,
+          "objects": 10039.7,
+          "gc_ms": 0.1
+        },
+        {
+          "ms": 2.0017499569803476,
+          "objects": 10039.7,
+          "gc_ms": 0.1
+        }
+      ]
+    },
+    "bind_render in both": {
+      "path": "/bind_both",
+      "median_ms": 1.4042000286281109,
+      "min_ms": 1.3811499811708927,
+      "max_ms": 1.5827000141143799,
+      "median_objects": 5353.5,
+      "median_gc_ms": 0.0,
+      "queries": 10,
+      "observed_renders": 1,
+      "samples": [
+        {
+          "ms": 1.407300028949976,
+          "objects": 5353.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.4144000131636858,
+          "objects": 5353.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.3811499811708927,
+          "objects": 5353.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.3964000158011913,
+          "objects": 5353.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.3819999992847443,
+          "objects": 5353.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.3811999931931496,
+          "objects": 5353.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.5827000141143799,
+          "objects": 5353.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.445949962362647,
+          "objects": 5353.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.4042000286281109,
+          "objects": 5353.5,
+          "gc_ms": 0.0
+        }
+      ]
+    },
+    "+ memoised subtree": {
+      "path": "/bind_memo",
+      "median_ms": 1.3950000051409006,
+      "min_ms": 1.3608499895781279,
+      "max_ms": 1.600999990478158,
+      "median_objects": 5233.5,
+      "median_gc_ms": 0.0,
+      "queries": 10,
+      "observed_renders": 1,
+      "samples": [
+        {
+          "ms": 1.600999990478158,
+          "objects": 5233.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.3920000288635492,
+          "objects": 5233.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.3950000051409006,
+          "objects": 5233.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.3813000172376633,
+          "objects": 5233.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.3988499995321035,
+          "objects": 5233.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.3608499895781279,
+          "objects": 5233.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.3943000230938196,
+          "objects": 5233.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.4307999983429909,
+          "objects": 5233.5,
+          "gc_ms": 0.0
+        },
+        {
+          "ms": 1.442050002515316,
+          "objects": 5233.5,
+          "gc_ms": 0.0
+        }
+      ]
+    }
+  }
+}

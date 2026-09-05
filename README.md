@@ -19,68 +19,34 @@ locals, development reloading and fragment cache digests all keep working.
 
 ## Why it is faster
 
-A `render` call costs roughly 12&nbsp;µs and ~28 objects *before* your ERB runs, no matter how
-small the partial is: an options hash, a fresh `PartialRenderer`, `extract_details`, a template
-lookup keyed by details and locals, an `ActiveSupport::Notifications` event, a per-partial
-`OutputBuffer`, and a string copy out of it into the parent buffer.
+A normal partial render performs template lookup, creates rendering objects and buffers,
+and emits ActiveSupport notifications. For a page with many small partials, that work adds up.
 
-`bind_render` resolves the template once per call site per process and then calls its compiled
-method, writing straight into the current buffer: **1.4 µs and 6 objects per call** on a leaf
-partial. Three things keep it there:
-
-- a two-level cache (lookup details, then virtual path) whose hit allocates nothing: the
-  cached locals shape is compared against the locals hash in place, so not even `locals.keys`
-  is built;
-- the map for the current lookup details is memoised on the view, so a request derives it
-  once instead of once per partial;
-- the compiled method is called directly, with the same `@current_template` / `@output_buffer`
-  bookkeeping `ActionView::Base#_run` does — from inside the helper, which is included in the
-  view class, so those are plain ivar assignments rather than `instance_variable_set`.
+`bind_render` caches the resolved template by resolver context and locals shape, then calls
+the method Rails compiled for it, writing into the current output buffer.
+`bind_render_each` also resolves once and reuses view bookkeeping across the collection.
+Strict-locals templates use `Template#render` for Rails' argument validation.
 
 ### bind_render_memo
 
-Keeps a partial's markup for the rest of the request, keyed by its locals values:
+Memoization reuses a partial's markup within one view context:
 
 ```erb
-<%= bind_render_memo "posts/summary", post_id: post.id %>
+<%= bind_render_memo "shared/tag", tag: "ruby" %>
 ```
 
-Two rules keep it honest. Only values it can compare safely are memoised — String, Symbol,
-Numeric, true, false, nil — so passing a model falls through to a real render rather than
-risking two records that compare equal sharing markup. And the memo lives on the view, so it
-dies with the request: a partial reading `I18n.locale` or `current_user` through a helper
-stays correct, because a request has one of each. A partial that is *not* a pure function of
-its locals plus request state — a counter, `Time.now`, `rand` — must not use it.
+Only String, Symbol, Numeric, true, false and nil values are memoized. Other objects fall
+through to rendering. Keys include resolver context, locals names, values and HTML safety;
+mutable strings are snapshotted so later mutation does not corrupt stored keys.
 
-A hit appends the stored markup without running the partial, so **anything the partial does
-besides producing markup happens once** — `content_for`, `provide`, incrementing an ivar,
-registering an asset. Rendered three times, a partial containing
-`<% content_for :counters, "x" %>` leaves `"xxx"` through `bind_render` and `"x"` through
-`bind_render_memo`, with identical markup either way. It behaves the same with and without
-template caching, so that difference shows up in development rather than waiting for
-production.
+Use it only when repeating those inputs should produce the same markup. Instance variables,
+current-user state, time and side effects are not part of the key. Request state can change
+within a render: a shared request alone does not guarantee correctness.
+A hit skips all partial side effects, including `content_for`, `provide` and counters.
+It behaves the same with template caching enabled or disabled.
 
-**It only pays on a partial that costs more than the lookup.** A hit runs about 1.0 µs, the
-same as rendering a leaf partial outright. The key is lookup details, then path, then locals
-names, then values: details so a variant or locale switch is not served stale markup, names
-so `primary: "New"` and `secondary: "New"` cannot collide. Memoising anything that cheap is
-a wash. On the benchmark page it is used for one subtree — an ownership block with a nested badge,
-identical for all 200 cards — and is worth **1 382 objects and no time at all**: 3.54x
-allocations against 3.30x, while wall-clock is a wash (2.55x against 2.63x, inside the run to
-run spread). Take it for GC pressure under concurrency, not for a faster page.
-
-Measure before reaching for it. Two earlier versions of this helper looked like wins and were
-not: the first cost more than it saved, and the second was fast because its key was wrong.
-
-`bind_render_each` goes further: every item renders the same template, so the view bookkeeping
-is saved and restored once for the whole collection rather than once per item. On a 20-item
-collection that is **1.06 µs and 3.6 objects per item, against 2.77 µs and 11.8 for Rails'
-own collection renderer.**
-
-Strict-locals partials go back through `Template#render`, which owns the argument checking —
-as does everything, on any Rails whose `Template#compile!`, `#method_name` or
-`#handle_render_error` this gem cannot find. A rename in a future Rails costs you the speedup,
-not your application.
+Memoization can reduce allocations without improving latency. Measure the subtree you want
+to memoize; the lookup itself has a cost.
 
 ## Install
 
@@ -135,87 +101,45 @@ string, so the block form of `render` is not supported either: passing a block r
 
 ## Benchmark
 
-A dummy app backed by SQLite — 2 000 posts, 6 000 comments, 10 authors — rendering a realistic
-tree: layout → header → nav → nav\_item, 200 cards per page whose cards render an author block,
-a tag collection, an ownership block that reads instance variables, a nested badge and three
-buttons, plus a sidebar built from four more queries (top categories, busiest authors, recent
-comments, totals) and a footer. **8 SQL queries per request**, the same on every route.
-Four routes, **byte-identical HTML**, different call styles.
+The dummy app renders a responsive publication page with a featured article, a card grid,
+navigation, tags, author information, buttons, community statistics, ranked posts and comments.
+It uses 2,000 posts, 6,000 comments and 10 authors, with **10 SQL queries per request**.
 
-```
-$ RAILS_ENV=production bundle exec rake bench
+All five routes produce equivalent HTML after normalizing the footer timestamp. The baseline
+already uses Rails' collection renderer. The default is 200 cards, which deliberately exercises
+many nested partials; use `PER=20` for a smaller page.
 
-view_bind 0.1.0 — 200 posts per page, Rails 8.1.3.1, Ruby 3.4.5 +YJIT
-database=SQLite
-env=production  eager_load=true  cache_template_loading=true  reloading=false
-5 rounds x 20 full requests, interleaved, best round per case
-counters: attached only for the inspection pass
+```sh
+bundle exec rake bench
+PER=20 bundle exec rake bench
+OUTPUT=tmp/benchmark.json bundle exec rake bench
 
-                                         ms    gc ms      objects   renders  queries     obj x    time x
-  render everywhere (baseline)       12.110     1.25       68 342      2662       10     1.00x     1.00x
-  bind_render in the view             5.060     0.35       21 723        62       10     3.15x     2.39x
-  bind_render in the layout          11.970     1.20       67 316      2601       10     1.02x     1.02x
-  bind_render in both                 4.670     0.35       20 689         1       10     3.30x     2.57x
-  + memoised subtree                  4.700     0.30       19 308         1       10     3.54x     2.59x
+# Use a dedicated database: the dummy app creates/reseeds its tables.
+createdb view_bind_bench
+DB=postgres PGUSER=your_user PGDATABASE=view_bind_bench bundle exec rake bench
+
+# Synthetic notification subscribers, not a named production APM agent:
+APM=1 bundle exec rake bench
 ```
 
-Medians of five runs of five rounds. 2 662 render calls collapse to 1, 47 653 fewer objects
-per request, and the page comes back in 39% of the time.
+The runner defaults to production mode, 15 warmup requests per case and nine rounds of twenty
+requests. Case order is randomized using a reproducible seed. Override `WARMUP`, `R`, `N`,
+`SEED` or `PER` as needed; `PER` accepts 1–500. `OUTPUT` saves metadata and all raw rounds.
+Use `RAILS_ENV=development bundle exec ruby benchmarks/run.rb` for an explicit development run;
+`rake bench` always selects production.
 
-### The database decides how much of this you keep
+Reported times are **median batch averages**; min–max describes batch variation, not request
+latency percentiles. Each request must return HTTP 200, and output equivalence is checked
+before timing and after every batch. Allocations are averaged per request, not universal constants.
 
-Same code, same 10 queries, same HTML — only the backend changed:
+The `observed` column counts template instances reported through Rails notifications, including
+collection payload counts. Bound templates still execute even though they emit fewer events.
+The default timing excludes the benchmark's inspection subscribers.
 
-| backend | baseline | bind_render in both | speedup |
-| --- | ---: | ---: | ---: |
-| SQLite, file | 12.11 ms | 4.67 ms | **2.57x** |
-| PostgreSQL 17, localhost | 18.59 ms | 11.08 ms | **1.66x** |
-
-Postgres adds a flat ~7 ms to every route, baseline and bound alike, so the same saved work is
-a smaller share of a bigger number. The allocation ratio barely moves (3.03x vs 2.98x), which
-is why it is the more portable figure.
-
-### If you run an APM
-
-Anything subscribed to `render_partial.action_view` — Skylight, Datadog, New Relic, Scout —
-pays a notification per partial. The baseline fires ~2 662 of them per request; the bound page
-fires one. Attaching the counters during timing (`APM=1 bundle exec rake bench`) measures that
-world:
-
-| | baseline | bind_render in both | speedup |
-| --- | ---: | ---: | ---: |
-| plain | 11.68 ms | 4.72 ms | 2.50x |
-| with view instrumentation | 14.29 ms | 4.74 ms | **3.02x** |
-
-The instrumented baseline is 2.9 ms and 14 334 objects heavier; the bound page is unchanged.
-The gem is worth more in an instrumented app than in a bare one.
-
-### Measure in production, not in development
-
-The same benchmark under `RAILS_ENV=development`:
-
-```
-env=development  eager_load=false  cache_template_loading=false  reloading=true
-
-  render everywhere (baseline)       15.452     4.75       68 531      2662     1.00x   1.00x
-  bind_render in the view             7.753     1.20       48 921        62     1.40x   1.99x
-  bind_render in both                 7.238     1.10       48 469         1     1.41x   2.13x
-```
-
-In development the lookup cache is bypassed so that editing a partial takes effect without a
-restart, so every call re-resolves the template: 48 469 objects instead of 27 847. The
-allocation win drops from 2.45x to 1.41x. Wall-clock happens to look similar here because
-development also carries more overhead on the baseline side — judge the gem on production
-numbers, not on what you see while clicking around `rails s`.
-
-**The layout is not where your time goes.** Converting only the layout is worth 1.01x.
-Converting the view, where a partial is called once per row, is worth ~2.5x. Convert loops,
-not chrome.
-
-**And the database sets the ceiling.** Those 8 queries and the ActiveRecord objects behind them
-cost the same on every route, which is why adding them moved the win from 3.6x to ~2.5x. On a
-page that renders 20 rows instead of 200, or one that spends 40 ms in the database, the number
-would be smaller still. Measure your own page before adopting anything here.
+See [the current measured results](benchmarks/results/README.md) and accompanying raw JSON.
+These are serial in-process measurements, not browser load times or concurrent throughput.
+Database latency, page size, GC and instrumentation affect the result; benchmark your own page.
+No leaf-level microsecond or profiler-overhead claims are inferred from this request benchmark.
 
 ## What it does not change
 
@@ -253,10 +177,10 @@ branch coverage of `lib/`. The one branch a single process cannot reach — the 
 child process in `test_loads_without_rails`, whose result is merged into the suite's.
 
 CI runs the suite against Rails 7.1, 8.0 and 8.1 (`gemfiles/`), because the fast path calls
-ActionView internals that move between versions. The dependency is left open at
-`actionview >= 7.1` rather than capped: `ViewBind.fast_path_available?` checks for the three
-private methods at boot and sends every partial through `Template#render` if a future Rails
-renames one, so a new major degrades instead of breaking.
+ActionView internals that move between versions. The dependency remains `actionview >= 7.1`.
+`ViewBind.fast_path_available?` detects missing methods and selects `Template#render`, but
+method existence cannot guarantee compatible signatures or behavior in future Rails releases.
+Validate framework upgrades against your application's rendering tests before deploying them.
 
 In development, templates are re-resolved on every call (guarded on
 `ActionView::Resolver.caching?`), so editing a partial works without a restart — and Rails'
@@ -338,12 +262,13 @@ more rows than anyone will look at.
 
 ## The dummy app
 
-`benchmarks/app.rb` is a single-file Rails application — four routes, a controller, 200
-in-memory posts and 29 ERB templates under `benchmarks/views/`. The benchmark drives it
-in-process, and you can also serve it and click through:
+`benchmarks/app.rb` is a single-file Rails application with a persistent SQLite database by
+default, or PostgreSQL when `DB=postgres`. The templates share presentation copy, inline CSS
+and the same database workload across all rendering modes.
 
-```bash
-bundle exec rake dummy   # http://localhost:9292
+```sh
+bundle exec rake dummy
+# Open http://localhost:9292/?per=6 for a short visual preview.
 ```
 
 | route | layout | view |
@@ -352,17 +277,23 @@ bundle exec rake dummy   # http://localhost:9292
 | `/bind_view` | `render` | `bind_render` |
 | `/bind_layout` | `bind_render` | `render` |
 | `/bind_both` | `bind_render` | `bind_render` |
+| `/bind_memo` | `bind_render` | bound cards with a memoized ownership subtree |
 
-All four return byte-identical HTML. It ships no CSS on purpose: it exists to be measured,
-not to look like anything.
+This is a rendering fixture, not a complete publication app: post/tag detail routes and
+account, sharing and saving actions are placeholders.
 
 ## Development
 
-```bash
+```sh
 bin/setup
-bundle exec rake test    # 11 tests
-bundle exec rake bench   # the table above
-bundle exec rake dummy   # browse the dummy app
+bundle exec rake test
+bundle exec rake coverage
+bundle exec rake bench
+bundle exec rake dummy
+BUNDLE_GEMFILE=gemfiles/rails_7.1.gemfile bundle install
+BUNDLE_GEMFILE=gemfiles/rails_7.1.gemfile bundle exec rake test
+BUNDLE_GEMFILE=gemfiles/rails_8.0.gemfile bundle install
+BUNDLE_GEMFILE=gemfiles/rails_8.0.gemfile bundle exec rake test
 ```
 
 ## License

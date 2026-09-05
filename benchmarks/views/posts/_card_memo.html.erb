@@ -1,7 +1,8 @@
 <article class="card">
-  <h3 class="card-title"><a href="/posts/<%= post.id %>"><%= post.title %></a></h3>
+  <div class="card-topline"><span class="category"><%= post.category %></span><span class="reading-time"><%= 4 + post.id % 6 %> min read</span></div>
+  <h3 class="card-title"><a href="/posts/<%= post.id %>"><%= STORY_TITLES[post.id % STORY_TITLES.size] %></a></h3>
   <%= bind_render "posts/author_bound", post: post %>
-  <p class="card-body"><%= post.excerpt %></p>
+  <p class="card-body"><%= STORY_EXCERPT %></p>
   <%= bind_render "posts/tags_bound", post: post %>
   <%= bind_render_memo "posts/ownership_bound" %>
   <%= bind_render "posts/actions_bound", post: post %>

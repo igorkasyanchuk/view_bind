@@ -1,2 +1,2 @@
-<h1>Latest posts</h1>
-<section class="cards"><%= render partial: "posts/card", collection: @posts, as: :post %></section>
+<div class="section-heading"><h2>The latest stories</h2><span><%= @posts.size %> stories · Newest first</span></div>
+<section class="cards" aria-label="Latest stories"><%= render partial: "posts/card", collection: @posts, as: :post %></section>

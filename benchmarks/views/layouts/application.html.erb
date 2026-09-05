@@ -1,11 +1,27 @@
 <!DOCTYPE html>
-<html>
-  <head><title>ViewBind Bench</title><%= render "layouts/style" %></head>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>The Build — Ideas worth building</title>
+    <%= render "layouts/style" %>
+  </head>
   <body>
     <%= render "shared/header", current_path: @current_path, user: @user %>
-    <% @flashes.each do |level, message| %><%= render "shared/flash", level: level, message: message %><% end %>
-    <main><%= yield %></main>
-    <%= render "shared/sidebar" %>
+    <div class="page-shell">
+      <div class="welcome">
+        <span class="welcome-label">An independent journal for curious builders</span>
+        <div class="notices"><% @flashes.each do |level, message| %><%= render "shared/flash", level: level, message: message %><% end %></div>
+      </div>
+      <div class="masthead">
+        <div><h1>Ideas worth building.</h1><p>Thoughtful stories on code, craft, and the people behind it.</p></div>
+        <div class="edition"><strong>The engineering journal</strong>A little perspective. Every week.</div>
+      </div>
+      <div class="content-grid">
+        <main id="latest"><%= yield %></main>
+        <%= render "shared/sidebar" %>
+      </div>
+    </div>
     <%= render "shared/footer" %>
   </body>
 </html>

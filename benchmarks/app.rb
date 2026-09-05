@@ -2,9 +2,9 @@
 
 # A dummy Rails app with a realistic layout: header -> nav -> nav_item, a card collection
 # whose cards render an author block, a tag collection and an actions block, plus a sidebar
-# and footer. Four routes render byte-identical HTML through different call styles.
+# and footer. Five routes render equivalent HTML through different call styles.
 # Production Rails runs YJIT; benchmark with it on unless YJIT=0.
-RubyVM::YJIT.enable if defined?(RubyVM::YJIT) && ENV["YJIT"] != "0"
+RubyVM::YJIT.enable if defined?(RubyVM::YJIT) && RubyVM::YJIT.respond_to?(:enable) && ENV["YJIT"] != "0"
 
 require "rails"
 require "action_controller/railtie"
@@ -12,8 +12,22 @@ require "active_record/railtie"
 require "logger"
 require_relative "../lib/view_bind"
 
-NAV_LINKS    = [["Home", "/"], ["Posts", "/posts"], ["Tags", "/tags"], ["About", "/about"]].freeze
-FOOTER_LINKS = [["Docs", "/docs"], ["Status", "/status"], ["Source", "/source"]].freeze
+NAV_LINKS    = [["Discover", "/"], ["Latest stories", "#latest"], ["Topics", "#topics"], ["Community", "#community"]].freeze
+FOOTER_LINKS = [["About", "#community"], ["Topics", "#topics"], ["Source", "https://github.com/igorkasyanchuk/view_bind"]].freeze
+# Presentation copy shared by every benchmark route; the database workload stays the same.
+STORY_TITLES = [
+  "The quiet art of making software faster",
+  "Good abstractions leave room to change your mind",
+  "What a slow query can teach you about your product",
+  "Building interfaces that get out of the way",
+  "Small teams, thoughtful tools, better software",
+  "A practical guide to doing less work in Rails",
+  "The details that make a codebase feel like home",
+  "Beyond the benchmark: performance people can feel",
+  "A little less JavaScript, a little more clarity",
+  "Why the simplest solution is rarely the first one"
+].freeze
+STORY_EXCERPT = "Notes from the workbench: practical lessons, small experiments, and a closer look at the decisions that make everyday software better."
 WIDGETS      = [["Popular", %w[ruby rails erb views]],
                 ["Recent",  %w[perf caching sqlite]],
                 ["Authors", %w[ada linus grace]]].freeze

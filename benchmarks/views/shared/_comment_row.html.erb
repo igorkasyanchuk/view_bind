@@ -1,4 +1,4 @@
 <li class="comment">
-  <b><%= comment.author_name %></b> on <em><%= comment.post.title %></em>
+  <b><%= comment.author_name %></b> on <em><%= truncate(STORY_TITLES[comment.post.id % STORY_TITLES.size], length: 44) %></em>
   <span><%= truncate(comment.body, length: 40) %></span>
 </li>

@@ -141,6 +141,40 @@ These are serial in-process measurements, not browser load times or concurrent t
 Database latency, page size, GC and instrumentation affect the result; benchmark your own page.
 No leaf-level microsecond or profiler-overhead claims are inferred from this request benchmark.
 
+### Concurrent throughput, over HTTP
+
+The numbers above are serial and in-process. This is the same page behind Puma, measured with
+ApacheBench, so the socket, the router and the middleware stack are all included:
+
+```sh
+RAILS_ENV=production LOG_LEVEL=info bin/rails s -b 127.0.0.1 -p 3000
+```
+
+```sh
+ab -n 200 -c 2 'http://127.0.0.1:3000/?per=200'
+ab -n 200 -c 2 'http://127.0.0.1:3000/bind_both?per=200'
+```
+
+| | `/` (standard Rails) | `/bind_both` (view\_bind) |
+| --- | ---: | ---: |
+| Requests/sec | 79.12 | **181.20** |
+| Mean request time | 25.28 ms | **11.04 ms** |
+| Median latency | 25 ms | **11 ms** |
+| p95 latency | 30 ms | **12 ms** |
+| Total for 200 requests | 2.528 s | **1.104 s** |
+| Failed requests | 0 | 0 |
+
+**2.29x the throughput (+129%) and 56% lower mean request time**, both routes returning the
+same 228 KB of HTML. Medians of three runs of 200 requests at concurrency 2 after warming, on
+one Puma worker with five threads over loopback, Ruby 3.4.5 +YJIT and SQLite.
+
+`/bind_memo` measures the same as `/bind_both` here (178.66 req/s, 11.20 ms, inside the
+run-to-run spread). Over HTTP the remaining time is dominated by the 10 queries and the request
+cycle, so the memo's extra saving only shows up in the in-process table.
+
+`ab` runs on the same machine as the server and competes with it for cores, and a laptop under
+load will not reproduce these exact figures. Run it against your own page.
+
 ## What it does not change
 
 Each of these is a test in the suite, because each is a way this kind of optimisation usually

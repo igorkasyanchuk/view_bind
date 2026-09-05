@@ -15,7 +15,11 @@ module ViewBind
     # The path may only start a new line once a parenthesis has been opened. Allowing a bare
     # line break would make a plain string literal on the line after an argument-less call
     # look like that call's path.
-    DIRECTIVE = /\bbind_(?:render|capture)(?:_each|_memo)?(?:[ \t]*\(\s*|[ \t]+)["']([^"']+)["']/
+    # `#` cannot appear in a virtual path, so excluding it drops interpolated names such as
+    # "posts/#{kind}_card" rather than reporting a dependency that resolves to nothing. Rails'
+    # own tracker turns those into a "posts/*_card" wildcard; matching that is a larger job
+    # than this regex, and reporting nothing is the same answer it gives for a dynamic path.
+    DIRECTIVE = /\bbind_(?:render|capture)(?:_each|_memo)?(?:[ \t]*\(\s*|[ \t]+)["']([^"'#]+)["']/
 
     # handler => the tracker that was registered before us, so we extend rather than replace
     @wrapped = {}

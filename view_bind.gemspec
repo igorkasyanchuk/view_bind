@@ -21,6 +21,8 @@ Gem::Specification.new do |spec|
   # same URL only warns that one of them will be dropped.
   spec.metadata["source_code_uri"] = spec.homepage
   spec.metadata["changelog_uri"]   = "#{spec.homepage}/blob/main/CHANGELOG.md"
+  # Releasing requires a second factor, so a leaked API key alone cannot publish a version.
+  spec.metadata["rubygems_mfa_required"] = "true"
 
   # Globbed from the gemspec's own directory, not the working one. A bare Dir[] resolves
   # against Dir.pwd, so `gem build path/to/view_bind.gemspec` from anywhere else matched

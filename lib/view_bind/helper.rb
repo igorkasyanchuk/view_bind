@@ -13,6 +13,15 @@ module ViewBind
     # every call, which costs more than the bound is worth: the masks a call site produces
     # are bounded by 2**locals.size and the whole memo dies with the request.
     MEMO_LIMIT_PER_SHAPE = 512
+    # Names `render` treats as options rather than locals. Every keyword these helpers take is
+    # a local, so a `render "card", object: post` mechanically ported to bind_render would
+    # silently become a local named `object` and the partial would render with the wrong data.
+    # None of these options are implemented -- use `render` where you need them -- so passing
+    # one raises instead. A Hash rather than an Array: the check runs per call.
+    RENDER_OPTIONS = %i[partial collection object locals layout spacer_template cached as]
+                     .to_h { |name| [name, true] }.freeze
+    # Rails' own rule for `as`, from ActionView's AbstractRenderer.
+    AS_PATTERN = /\A[a-z_][a-zA-Z_0-9]*\z/
     # Render a partial by calling its own compiled method, straight into the current buffer.
     #
     #   <%= bind_render "shared/header" %>
@@ -23,6 +32,7 @@ module ViewBind
     # #bind_capture, which returns a string.
     def bind_render(path, **locals, &block)
       raise ArgumentError, "bind_render does not support a block; use render for the block form" if block
+      reject_render_options!(:bind_render, locals)
 
       unless ViewBind.profile?
         render_bound(ViewBind.bound_for_locals(self, path, locals), locals)
@@ -63,6 +73,7 @@ module ViewBind
     # helper is still correct, because a request has only one of each.
     def bind_render_memo(path, **locals, &block)
       raise ArgumentError, "bind_render_memo does not support a block" if block
+      reject_render_options!(:bind_render_memo, locals)
       # The key walk is part of what a memo call costs -- that is the number worth comparing
       # against the render it replaces -- so it happens inside the measurement.
       return (memo_render(path, locals); nil) unless ViewBind.profile?
@@ -79,6 +90,8 @@ module ViewBind
     # Provides `<as>_counter` and `<as>_iteration` exactly like `render collection:`.
     def bind_render_each(path, collection, as:, **shared, &block)
       raise ArgumentError, "bind_render_each does not support a block" if block
+      reject_render_options!(:bind_render_each, shared)
+      as = normalize_as(as)
 
       # PartialIteration ships with the collection renderer, which an app with eager_load
       # disabled has not necessarily loaded yet. Required here rather than at gem load time,
@@ -137,6 +150,34 @@ module ViewBind
     end
 
     private
+
+    # `as` may be given as a String, the way `render collection:` accepts it, and has to name a
+    # local the compiled template can actually declare.
+    def normalize_as(as)
+      name = as.to_sym
+      unless AS_PATTERN.match?(name.name)
+        raise ArgumentError, "The value (#{as}) of the option `as` is not a valid Ruby " \
+                             "identifier; make sure it starts with lowercase letter, and is " \
+                             "followed by any combination of letters, numbers and underscores."
+      end
+      if RENDER_OPTIONS[name]
+        raise ArgumentError, "`as: #{name.inspect}` collides with a render option name; " \
+                             "pick another name for the item local."
+      end
+      name
+    end
+
+    # Raises when a caller passes one of render's option names as a local. Iterating the locals
+    # rather than the option list keeps this at one hash lookup for the usual one-local call.
+    def reject_render_options!(helper, locals)
+      locals.each_key do |key|
+        next unless RENDER_OPTIONS[key]
+
+        raise ArgumentError, "#{helper} takes locals, not render's options, and would have " \
+                             "passed #{key.inspect} to the partial as a local. " \
+                             "Use render if you need the #{key.inspect} option."
+      end
+    end
 
     # Runs the block, timed as one row of `size` renders when profiling is on. Both collection
     # loop bodies go through here: a strict-locals collection is still a supported render, so

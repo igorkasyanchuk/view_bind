@@ -7,6 +7,14 @@
   response validation, accurate query counts, configurable page size and raw JSON output.
 - Concurrent first-render and per-view memo isolation regression coverage.
 - Include the changelog in the built gem.
+- `bind_render`, `bind_render_memo` and `bind_render_each` raise on render's option names
+  (`locals:`, `object:`, `collection:`, `partial:`, `layout:`, …) instead of silently
+  passing them to the partial as locals.
+- `bind_render_each` accepts `as:` as a String and rejects a name that is not a valid Ruby
+  identifier, the way `render collection:` does.
+- The dependency tracker ignores interpolated paths rather than reporting a dependency
+  that resolves to nothing.
+- Releases require MFA (`rubygems_mfa_required`), and CI covers Rails 7.2.
 - `bind_render` and `bind_render_each`: render a partial through its own compiled method.
 - Dependency tracker so `cache` digests still bust when a bound partial changes.
 - Lookup cache keyed by the whole resolver context — `details_key`, view paths and prefixes —

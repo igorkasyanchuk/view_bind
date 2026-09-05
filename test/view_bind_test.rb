@@ -618,7 +618,7 @@ class ViewBindTest < Minitest::Test
     bound = view
     bound.instance_eval { bind_render_each "fixtures/strict_item", %w[a b], as: :item }
 
-    assert_equal "<li>a</li><li>b</li>", dense(bound.output_buffer)
+    assert_equal "<b>a#0</b><b>b#1</b>", dense(bound.output_buffer)
     assert_equal dense(view.render(partial: "fixtures/strict_item", collection: %w[a b], as: :item)),
                  dense(bound.output_buffer)
   end
@@ -869,6 +869,332 @@ class ViewBindTest < Minitest::Test
     # and asserts Rails is absent -- so its stderr is what the failure message has to carry.
     output, status = Open3.capture2e(RbConfig.ruby, "-I", lib, "-e", program)
     assert status.success?, "the no-Rails child process failed:\n#{output}"
+  end
+
+  # --- ported from the pre-audit branch -------------------------------------------------
+  #
+  # Coverage the current suite did not reach: collection argument handling, fragment
+  # caching, non-HTML formats, relative translation keys and render-option rejection.
+
+  # A raised guard must not poison the shape cache: the corrected call site works.
+  def test_a_rejected_call_does_not_poison_the_cache
+    v = view
+    assert_raises(ArgumentError) { v.instance_eval { bind_render "fixtures/leaf", locals: { word: "x" } } }
+    v.instance_eval { bind_render "fixtures/leaf", word: "ok" }
+    assert_equal "<i>ok</i>", squish(v.output_buffer)
+  end
+
+  def test_bind_capture_with_parens_and_locals
+    v = view
+    assert_equal "<i>cap</i>", squish(v.instance_eval { bind_capture("fixtures/leaf", word: "cap") })
+  end
+
+  # Variants resolve through details_key on the plain path too, not only through the memo.
+  def test_bind_render_respects_a_variant
+    v = view
+    v.lookup_context.variants = [:phone]
+    v.instance_eval { bind_render "fixtures/variantish", word: "v" }
+    assert_equal "<i>phone-v</i>", squish(v.output_buffer)
+  end
+
+  # A Hash is an Enumerable with to_a; item locals become [key, value] pairs, same as render.
+  def test_collection_accepts_a_hash
+    a = view.tap { |v| v.instance_eval { bind_render_each "fixtures/leaf", { k: 1 }, as: :word } }
+    b = view.render(partial: "fixtures/leaf", collection: { k: 1 }.to_a, as: :word)
+    assert_equal squish(b), squish(a.output_buffer)
+  end
+
+  # `render collection: @posts` takes anything with to_a; a mechanically converted call site
+  # hands over a relation, not an Array.
+  def test_collection_accepts_an_enumerable_that_is_not_an_array
+    relation = Class.new do
+      def initialize(items) = @items = items
+      def to_a = @items
+    end.new(%w[r s])
+
+    v = view
+    v.instance_eval { bind_render_each "fixtures/item", relation, as: :item }
+    assert_equal squish(view.render(partial: "fixtures/item", collection: %w[r s], as: :item)),
+                 squish(v.output_buffer)
+  end
+
+  def test_collection_accepts_as_given_as_a_string
+    v = view
+    v.instance_eval { bind_render_each "fixtures/item", %w[a], as: "item" }
+    assert_equal "<li>a@0/1!</li>", squish(v.output_buffer)
+  end
+
+  def test_collection_passes_shared_locals_to_every_item
+    v = view
+    v.instance_eval { bind_render_each "fixtures/leaf", [1, 2], as: :item, word: "k" }
+    assert_equal "<i>k</i> <i>k</i>", squish(v.output_buffer)
+  end
+
+  # as: :object would land in the reserved-keys check with a confusing message; it must be
+  # rejected up front like any other invalid name.
+  def test_collection_rejects_a_reserved_as_name
+    v = view
+    assert_raises(ArgumentError) do
+      v.instance_eval { bind_render_each "fixtures/item", %w[a], as: :object }
+    end
+  end
+
+  # `as:` is interpolated into local variable names, so a non-identifier must fail loudly
+  # rather than compile garbage.
+  def test_collection_rejects_an_invalid_as_name
+    v = view
+    assert_raises(ArgumentError) do
+      v.instance_eval { bind_render_each "fixtures/item", %w[a], as: :"item-1" }
+    end
+  end
+
+  def test_collection_renders_an_empty_array_as_nothing
+    v = view
+    v.instance_eval { bind_render_each "fixtures/item", [], as: :item }
+    assert_equal "", squish(v.output_buffer)
+  end
+
+  # A collection may legitimately contain nil items; the local is just nil then, same as render.
+  def test_collection_renders_nil_items
+    a = view.tap { |v| v.instance_eval { bind_render_each "fixtures/leaf", [nil], as: :word } }
+    b = view.render(partial: "fixtures/leaf", collection: [nil], as: :word)
+    assert_equal squish(b), squish(a.output_buffer)
+  end
+
+  # The slow path must still provide <as>_counter to a strict partial that declares it.
+  def test_collection_slow_path_provides_the_counter
+    a = view.tap { |v| v.instance_eval { bind_render_each "fixtures/strict_item", %w[p q], as: :item } }
+    b = view.render(partial: "fixtures/strict_item", collection: %w[p q], as: :item)
+    assert_equal "<b>p#0</b> <b>q#1</b>", squish(a.output_buffer)
+    assert_equal squish(b), squish(a.output_buffer)
+  end
+
+  # `render collection: nil` renders nothing; a mechanically converted `render @posts` where
+  # the scope can be nil must not raise.
+  def test_collection_treats_nil_as_empty
+    v = view
+    v.instance_eval { bind_render_each "fixtures/item", nil, as: :item }
+    assert_equal "", squish(v.output_buffer)
+  end
+
+  def test_collection_with_a_missing_partial_raises_missing_template
+    v = view
+    assert_raises(ActionView::MissingTemplate) do
+      v.instance_eval { bind_render_each "fixtures/nope", %w[a], as: :item }
+    end
+  end
+
+  # Strict-locals partials take the slow path through Template#render; output must still be
+  # identical to `render collection:`.
+  def test_collection_with_strict_locals_matches_render_collection
+    a = view.tap { |v| v.instance_eval { bind_render_each "fixtures/strict", %w[p q], as: :name } }
+    b = view.render(partial: "fixtures/strict", collection: %w[p q], as: :name)
+    assert_equal squish(b), squish(a.output_buffer)
+  end
+
+  # First render of one partial from many threads at once: compute is atomic, compile! holds
+  # its own lock, and every thread must come out with correct markup.
+  def test_concurrent_first_render_of_one_partial
+    ViewBind.clear_cache
+    outputs = Array.new(8)
+    8.times.map do |i|
+      Thread.new do
+        v = view
+        v.instance_eval { bind_render "fixtures/leaf", word: "t" }
+        outputs[i] = squish(v.output_buffer)
+      end
+    end.each(&:join)
+    assert_equal ["<i>t</i>"] * 8, outputs
+  end
+
+  # The memo form must participate in digests end to end, not just in the regex: editing the
+  # memoised partial has to change the digest of the template that memoises it.
+  def test_dependency_tracking_busts_digests_through_bind_render_memo
+    leaf = Rails.root.join("views/fixtures/_leaf.html.erb")
+    original = File.read(leaf)
+    digest = lambda do
+      ActionView::Digestor.digest(name: "fixtures/memo_page", format: :html,
+                                  finder: view.lookup_context)
+    end
+
+    before = digest.call
+    File.write(leaf, "#{original}<!-- changed -->")
+    ActionView::LookupContext::DetailsKey.clear
+    refute_equal before, digest.call
+  ensure
+    File.write(leaf, original)
+    ActionView::LookupContext::DetailsKey.clear
+  end
+
+  # `cache` digests through @current_template, which the fast path swaps in itself. The
+  # fragment must be written on the first render and served on the second.
+  def test_fragment_cache_works_inside_a_bound_partial
+    store_was = ActionController::Base.cache_store
+    ActionController::Base.cache_store = ActiveSupport::Cache::MemoryStore.new
+
+    first = view
+    first.controller.perform_caching = true
+    first.instance_eval { bind_render "fixtures/cached", word: "one" }
+    assert_equal "<s>one</s>", squish(first.output_buffer)
+
+    second = view
+    second.controller.perform_caching = true
+    second.instance_eval { bind_render "fixtures/cached", word: "two" }
+    assert_equal "<s>one</s>", squish(second.output_buffer), "second render must hit the fragment"
+  ensure
+    ActionController::Base.cache_store = store_was
+  end
+
+  # `locals: { ... }` is render's API; here it would silently become one local named
+  # `locals` and produce wrong HTML at every mechanically converted call site.
+  def test_locals_option_raises_instead_of_becoming_a_local
+    v = view
+    assert_raises(ArgumentError) { v.instance_eval { bind_render "fixtures/leaf", locals: { word: "x" } } }
+    assert_raises(ArgumentError) { v.instance_eval { bind_render_memo "fixtures/leaf", locals: { word: "x" } } }
+    assert_raises(ArgumentError) do
+      v.instance_eval { bind_render_each "fixtures/item", %w[a], as: :item, locals: { word: "x" } }
+    end
+  end
+
+  # The guard is keyed on the key alone: a nil or non-Hash value must not slip past.
+  def test_locals_option_raises_regardless_of_value_type
+    v = view
+    assert_raises(ArgumentError) { v.instance_eval { bind_render "fixtures/leaf", locals: nil } }
+    assert_raises(ArgumentError) { v.instance_eval { bind_render "fixtures/leaf", locals: "word" } }
+  end
+
+  # The cap bounds memory on a page fed unbounded distinct values; rendering must stay
+  # correct past it, only the memoisation stops.
+  def test_memo_caps_entries_per_shape
+    v = view
+    over = ViewBind::Helper::MEMO_LIMIT_PER_SHAPE + 1
+    over.times { |i| v.instance_eval { bind_render_memo "fixtures/leaf", word: "w#{i}" } }
+    entries = memo_bucket(v, "fixtures/leaf", [:word])
+    assert_equal ViewBind::Helper::MEMO_LIMIT_PER_SHAPE, entries.size
+    assert_includes v.output_buffer.to_s, "<i>w#{over - 1}</i>"
+  end
+
+  # Memo keys must not conflate values that only compare equal across types.
+  def test_memo_distinguishes_value_types
+    v = view
+    v.instance_eval { bind_render_memo "fixtures/leaf", word: 1 }
+    v.instance_eval { bind_render_memo "fixtures/leaf", word: "1" }
+    entries = memo_bucket(v, "fixtures/leaf", [:word])
+    assert_equal 2, entries.size
+  end
+
+  # Locale is part of details_key, so a mid-request locale switch must re-render, not serve
+  # the first locale's markup.
+  def test_memo_respects_a_locale_change
+    v = view
+    v.instance_eval { bind_render_memo "fixtures/greeting" }
+    v.lookup_context.locale = :fr
+    v.instance_eval { bind_render_memo "fixtures/greeting" }
+    assert_equal "<span>hello</span> <span>bonjour</span>", squish(v.output_buffer)
+  end
+
+  def test_memo_with_no_locals_matches_plain_rendering
+    memoised = view
+    plain    = view
+    2.times do
+      memoised.instance_eval { bind_render_memo "fixtures/greeting" }
+      plain.instance_eval { bind_render "fixtures/greeting" }
+    end
+    assert_equal squish(plain.output_buffer), squish(memoised.output_buffer)
+  end
+
+  # A collection render nested inside a bound partial exercises both state swaps at once.
+  def test_nested_collection_inside_a_bound_partial
+    v = view
+    v.instance_eval { bind_render "fixtures/list", words: %w[a b] }
+    assert_equal "<u><i>a</i> <i>b</i> </u>", squish(v.output_buffer)
+    assert_nil v.instance_variable_get(:@current_template)
+  end
+
+  # The slow (strict-locals) branch of bind_render_each must show up in the profiler like
+  # the fast branch does -- those are exactly the collections worth seeing.
+  def test_profiler_counts_strict_locals_collections
+    ViewBind.profile = true
+    ViewBind::Profiler.reset
+    v = view
+    v.instance_eval { bind_render_each "fixtures/strict", %w[a b c], as: :name }
+    assert_match(/fixtures\/strict\s+x3/, ViewBind::Profiler.summary)
+  ensure
+    ViewBind.profile = false
+    ViewBind::Profiler.reset
+  end
+
+  # t(".key") derives its scope from @virtual_path, which the fast path swaps in itself; a
+  # wrong or stale virtual path resolves the wrong translation.
+  def test_relative_translation_key_resolves_inside_a_bound_partial
+    I18n.backend.store_translations(:en, fixtures: { translated: { hello: "hi-there" } })
+    v = view
+    v.instance_eval { bind_render "fixtures/translated" }
+    assert_equal "<em>hi-there</em>", squish(v.output_buffer)
+  end
+
+  # clear_cache mid-request (the reloader path) must rebuild transparently.
+  def test_renders_across_a_cache_clear
+    v = view
+    v.instance_eval { bind_render "fixtures/leaf", word: "before" }
+    ViewBind.clear_cache
+    v.instance_eval { bind_render "fixtures/leaf", word: "after" }
+    assert_equal "<i>before</i> <i>after</i>", squish(v.output_buffer)
+  end
+
+  # Every reserved render option, not just locals:, must fail loudly -- collection: was
+  # the silent killer: it would render the partial once with a local named `collection`.
+  def test_reserved_render_options_raise_as_locals
+    v = view
+    assert_raises(ArgumentError) { v.instance_eval { bind_render "fixtures/leaf", collection: %w[a] } }
+    assert_raises(ArgumentError) { v.instance_eval { bind_render "fixtures/leaf", object: "x" } }
+    assert_raises(ArgumentError) { v.instance_eval { bind_render "fixtures/leaf", partial: "y" } }
+  end
+
+  # One entry per locals shape: repeat renders reuse it, a new shape adds one.
+  def test_resolution_is_cached_per_locals_shape
+    ViewBind.clear_cache
+    v = view
+    entries = -> { ViewBind.bindings_for(v)["fixtures/leaf"] }
+    2.times { v.instance_eval { bind_render "fixtures/leaf", word: "a" } }
+    assert_equal 1, entries.call.size
+
+    v.instance_eval { bind_render "fixtures/leaf", word: "b", extra: 1 }
+    assert_equal 2, entries.call.size
+  end
+
+  # Format is part of details_key: a json lookup must resolve the .json.erb template.
+  def test_resolves_a_json_format_partial
+    v = view
+    v.lookup_context.formats = [:json]
+    v.instance_eval { bind_render "fixtures/payload", word: "j" }
+    assert_equal '{"word":"j"}', v.output_buffer.to_s.strip
+  end
+
+  # Every helper and both call syntaxes must be tracked: a form the regex misses is a partial
+  # whose edits never bust upstream cache keys.
+  def test_tracker_directive_matches_every_call_form
+    src = <<~ERB
+      <%= bind_render "a/one" %>
+      <%= bind_render("a/two", word: "x") %>
+      <%= bind_render_memo "a/three", word: "x" %>
+      <%= bind_render_memo("a/four", word: "x") %>
+      <%= bind_render_each("a/five", items, as: :item) %>
+      <%= bind_capture("a/six") %>
+    ERB
+    assert_equal %w[a/one a/two a/three a/four a/five a/six],
+                 src.scan(ViewBind::Tracker::DIRECTIVE).flatten
+  end
+
+  # A dynamic path cannot be tracked; the regex must not invent a dependency from it.
+  def test_tracker_ignores_dynamic_paths
+    assert_empty '<%= bind_render partial_name, word: "x" %>'.scan(ViewBind::Tracker::DIRECTIVE)
+  end
+
+  # An interpolated path cannot be tracked; capturing it as a literal would make Digestor
+  # log a missing template on every digest. It must yield no dependency at all.
+  def test_tracker_ignores_interpolated_paths
+    assert_empty '<%= bind_render "posts/#{kind}_card" %>'.scan(ViewBind::Tracker::DIRECTIVE)
   end
 
   private

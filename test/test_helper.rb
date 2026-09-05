@@ -87,6 +87,12 @@ module ViewHelpers
 
   def erb_handler = ActionView::Template.handler_for_extension(:erb)
 
+  # The memo values for one path and locals shape, across every HTML-safety mask.
+  def memo_bucket(rendered, path, shape)
+    by_safety = rendered.instance_variable_get(:@__view_bind_memo).values.first[path][shape]
+    by_safety.values.reduce({}) { |all, entries| all.merge(entries) }
+  end
+
   # The innermost memo map for the first thing `rendered` memoised: the memo nests as
   # context => path => locals names => HTML-safety mask => value => markup. Named `rendered`
   # rather than `view`, which in this module builds a fresh view context.

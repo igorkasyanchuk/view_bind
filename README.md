@@ -217,7 +217,8 @@ branch coverage of `lib/`. The one branch a single process cannot reach — the 
 `require`, which is skipped only where `Rails::Railtie` is undefined — is covered by the
 child process in `test_loads_without_rails`, whose result is merged into the suite's.
 
-CI runs the suite against Rails 7.1, 8.0 and 8.1 (`gemfiles/`), because the fast path calls
+CI runs the suite against Rails 7.1, 7.2 and 8.0 (`gemfiles/`), and against the newest
+release through the default `Gemfile` (8.1 today, unpinned), because the fast path calls
 ActionView internals that move between versions. The dependency remains `actionview >= 7.1`.
 `ViewBind.fast_path_available?` detects missing methods and selects `Template#render`, but
 method existence cannot guarantee compatible signatures or behavior in future Rails releases.

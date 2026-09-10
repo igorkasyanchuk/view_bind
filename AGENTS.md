@@ -14,8 +14,10 @@ bundle exec rake bench     # benchmark suite, see below
 bundle exec rake dummy     # dummy app on http://localhost:9292
 ```
 
-CI runs the suite against Rails 7.1, 8.0 and 8.1 (`gemfiles/`), plus a coverage job. The gem
-calls ActionView internals, so a change that passes on one version can fail on another.
+CI runs the suite against Rails 7.1, 7.2 and 8.0 (`gemfiles/`) and the newest release through
+the default `Gemfile` (8.1 today, unpinned), plus a coverage job. Ruby 3.1 and 3.4; 3.1 pairs
+only with 7.1 and 7.2. The gem calls ActionView internals, so a change that passes on one
+version can fail on another.
 
 ## Benchmarking
 

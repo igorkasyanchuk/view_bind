@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.0] - unreleased
+## [0.1.0] - 2026-09-10
 
 - `bind_capture` rejects unsupported blocks instead of silently dropping their content.
 - Dummy-app smoke checks clear inherited `LOG_LEVEL` for the unset-variable case.
@@ -31,5 +31,6 @@
 - The profiler measures strict-locals collections, and counts a delegated memo call at its
   own nesting level so its time reaches the header total.
 - `rake coverage`: the suite under SimpleCov, gated at 100% line and branch coverage.
-- CI matrix over Rails 7.1, 8.0 and 8.1.
+- CI matrix over Rails 7.1, 7.2 and 8.0, plus the newest release through the default
+  `Gemfile`.
 - Templates re-resolved in development, cached in production.

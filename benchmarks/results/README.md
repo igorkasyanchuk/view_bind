@@ -51,10 +51,12 @@ Changing the HTML, runtime, database or profiling configuration requires a new m
 Unlike the measurements above, which are frozen to the run recorded in the JSON files, these
 track the current revision and are re-checked when it changes.
 
-- Ruby 3.4.5 / Rails 8.1.3.1: 78 tests, 171 assertions, no failures or skips.
-- Ruby 3.4.5 / Rails 8.0.5.1: 78 tests, no failures; the Rails-8.1-only tracker test is skipped.
-- Ruby 3.1.7 / Rails 7.1.6 on CI: 78 tests, no failures; the same version-specific test is skipped.
-- Line coverage: 252/252; branch coverage: 85/85.
+- Ruby 3.4.5 / Rails 8.1.3.1: 112 tests, 221 assertions, no failures or skips.
+- Ruby 3.4.10 / Rails 8.0 and 7.2 on CI: 112 tests, 220 assertions, no failures; the
+  Rails-8.1-only tracker test is skipped.
+- Ruby 3.1.7 / Rails 7.1.6 and 7.2.3.2 on CI: 112 tests, 213 assertions, no failures; the same
+  version-specific test is skipped.
+- Line coverage: 271/271; branch coverage: 93/93.
 - Every regression found in the audits of this revision has a test in the normal suite: see
   the behaviour table in the main README, which names the test covering each one. A concurrent
   first-render test checks locals and per-view memo isolation.

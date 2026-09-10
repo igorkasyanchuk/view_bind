@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Preserve empty and whitespace-only output in `bind_capture` and `bind_render_memo`.
+- Render non-ERB handlers through `Template#render` so raw and static HTML output is
+  preserved by every helper, including collections.
+- Reuse the caller's buffer for strict-locals ERB, and reuse the implicit-locals list
+  across collection items to avoid per-partial allocations.
+- Skip memoization for zero-valued Floats so `0.0` and `-0.0` keep their distinct output.
+
 ## [0.1.0] - 2026-09-10
 
 - `bind_capture` rejects unsupported blocks instead of silently dropping their content.

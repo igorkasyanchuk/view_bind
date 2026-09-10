@@ -25,7 +25,10 @@ and emits ActiveSupport notifications. For a page with many small partials, that
 `bind_render` caches the resolved template by resolver context and locals shape, then calls
 the method Rails compiled for it, writing into the current output buffer.
 `bind_render_each` also resolves once and reuses view bookkeeping across the collection.
-Strict-locals templates use `Template#render` for Rails' argument validation.
+The direct call is used for the stock ERB handler. Strict-locals templates use
+`Template#render` for Rails' argument validation while reusing the caller's buffer.
+Other handlers also use `Template#render`,
+preserving output from handlers that return a string or a new buffer.
 
 ### bind_render_memo
 
@@ -35,9 +38,11 @@ Memoization reuses a partial's markup within one view context:
 <%= bind_render_memo "shared/tag", tag: "ruby" %>
 ```
 
-Only String, Symbol, Numeric, true, false and nil values are memoized. Other objects fall
-through to rendering. Keys include resolver context, locals names, values and HTML safety;
-mutable strings are snapshotted so later mutation does not corrupt stored keys.
+Only String, Symbol, Numeric, true, false and nil values are memoized. Zero-valued Floats
+fall through to rendering because `0.0` and `-0.0` compare as the same hash key but render
+differently. Other objects also fall through. Keys include resolver context, locals names,
+values and HTML safety; mutable strings are snapshotted so later mutation does not corrupt
+stored keys.
 
 Use it only when repeating those inputs should produce the same markup. Instance variables,
 current-user state, time and side effects are not part of the key. Request state can change
@@ -89,7 +94,7 @@ Works the same in a view, in a partial, and in a layout:
 
 Both helpers write into the buffer and return `nil`, so `<%= %>` appends nothing extra. When
 you need the markup **as a value** — `content_for`, a helper argument — use `bind_capture`,
-which returns a string:
+which returns a safe string, preserving empty and whitespace-only output:
 
 ```erb
 <% content_for :sidebar, bind_capture("shared/widget") %>
@@ -286,10 +291,11 @@ production.
   fewer view events, and Rails' per-partial `Rendered …` log lines disappear for them — 65
   lines become 2 on the benchmark page. The `Completed … (Views: 16.9ms)` total is unaffected.
   See **Seeing where the time goes** below for the replacement.
-- A partial that reassigns `@output_buffer` without restoring it loses its output. These
-  helpers write into the buffer they are given, whereas `render` builds its own buffer and
-  takes whatever the partial returns, so it survives that. `capture` and `with_output_buffer`
-  restore the buffer and are unaffected; only code that assigns the ivar and walks away is.
+- An ERB partial on the direct path that reassigns `@output_buffer` without restoring it
+  loses its output. That path writes into the buffer it is given, whereas `render` builds
+  its own buffer and takes whatever the partial returns, so it survives that. `capture`
+  and `with_output_buffer` restore the buffer and are unaffected; only code that assigns
+  the ivar and walks away is.
   Inside `bind_render_each` such an item takes the rest of the collection with it.
 - The resolved-template cache is not evicted. It is keyed per call site, per resolver context
   (lookup details, view paths and prefixes), so it is bounded in practice — but passing a varying

@@ -5,6 +5,7 @@
 /doc/
 /pkg/
 /spec/reports/
+# Local scratch files and generated benchmark runs (tmp/benchmarks/).
 /tmp/
 
 *.gem

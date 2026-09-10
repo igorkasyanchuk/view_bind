@@ -175,8 +175,8 @@ class ViewBindTest < Minitest::Test
     assert_equal "<i>primary=New</i><i>secondary=New</i>", dense(v.output_buffer)
   end
 
-  # capture returns nil for a partial that renders nothing; the memo has to record that as a
-  # hit, or the partial it exists to skip is re-rendered on every call.
+  # Empty output is still a memo hit, or the partial it exists to skip is re-rendered on
+  # every call.
   def test_memo_records_a_partial_that_renders_nothing
     v = view
     2.times { v.instance_eval { bind_render_memo "fixtures/empty", word: "x" } }
@@ -864,11 +864,23 @@ class ViewBindTest < Minitest::Test
       raise "Rails was already loaded" if defined?(Rails::Railtie)
 
       require "view_bind"
+
+      # No prior render may load PartialIteration for us. A separate process makes this
+      # cold collection render independent of the parent suite's randomized test order.
+      require "uri" # Older ActionView expects the host application to load this stdlib.
+      require "action_view"
+      view = ActionView::Base.with_empty_template_cache.with_view_paths([ARGV.fetch(0)])
+      view.extend(ViewBind::Helper)
+      raise "collection renderer already loaded" if defined?(ActionView::PartialIteration)
+      view.bind_render_each("fixtures/item", %w[a b], as: :item)
+      expected = "<li>a@0/2</li><li>b@1/2!</li>"
+      raise "incorrect collection output" unless view.output_buffer.to_s.gsub(/\s+/, "") == expected
     RUBY
 
     # The child can fail for reasons other than the one under test -- it also loads SimpleCov
     # and asserts Rails is absent -- so its stderr is what the failure message has to carry.
-    output, status = Open3.capture2e(RbConfig.ruby, "-I", lib, "-e", program)
+    output, status = Open3.capture2e(RbConfig.ruby, "-I", lib, "-e", program,
+                                    File.expand_path("views", __dir__))
     assert status.success?, "the no-Rails child process failed:\n#{output}"
   end
 

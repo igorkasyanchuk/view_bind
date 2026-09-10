@@ -51,7 +51,8 @@ module ViewBind
     #   <% content_for :sidebar, bind_capture("shared/widget") %>
     def bind_capture(path, **locals, &block)
       raise ArgumentError, "bind_capture does not support a block; use render for the block form" if block
-      capture { bind_render(path, **locals) }
+      # Returning the buffer makes Rails preserve even empty or whitespace-only output.
+      capture { bind_render(path, **locals); output_buffer }
     end
 
     # Render a partial once per distinct set of locals *values*, reusing the markup for
@@ -68,10 +69,10 @@ module ViewBind
     # ivar, registering an asset. Memoise markup, not side effects.
     #
     # Only values it can safely compare are memoised (String, Symbol, Numeric, true, false,
-    # nil); anything else -- a model, a hash, an array -- falls through to a normal render,
-    # so passing a record cannot serve you a stale card. The memo lives on the view, so it
-    # dies with the request: a partial that reads I18n.locale or current_user through a
-    # helper is still correct, because a request has only one of each.
+    # nil), except zero-valued Floats whose signs compare equal. Other values fall through
+    # to a normal render, so passing a record cannot serve you a stale card. The memo lives
+    # on the view, but request state can change during a render: helper state and side
+    # effects must still be excluded from a memoised partial.
     def bind_render_memo(path, **locals, &block)
       raise ArgumentError, "bind_render_memo does not support a block" if block
       reject_render_options!(:bind_render_memo, locals)
@@ -109,13 +110,15 @@ module ViewBind
       partial_iteration = ActionView::PartialIteration.new(collection.size)
       locals[iteration] = partial_iteration
 
-
       if bound.slow
+        render_buffer = buffer if bound.writes_to_buffer
+        implicit_locals = [counter, iteration]
         measuring_collection(path, collection.size) do
           collection.each do |item|
             locals[as]      = item
             locals[counter] = partial_iteration.index
-            bound.template.render(self, locals, buffer, implicit_locals: [counter, iteration])
+            rendered = bound.template.render(self, locals, render_buffer, implicit_locals: implicit_locals)
+            buffer << rendered unless render_buffer
             partial_iteration.iterate!
           end
         end
@@ -210,6 +213,13 @@ module ViewBind
         when String
           safety |= (1 << i) if value.html_safe?
           i += 1
+        when Float
+          # Hash treats 0.0 and -0.0 as the same key, but they render different text.
+          if value.zero?
+            render_bound(ViewBind.bound_for_locals(self, path, locals), locals)
+            return false
+          end
+          i += 1
         when Symbol, Numeric, true, false, nil then i += 1
         else
           # Going back through bind_render would time this render one level deeper than it
@@ -250,9 +260,9 @@ module ViewBind
       return by_value[key] if hit
 
       bound = ViewBind.bound_for_locals(self, path, locals)
-      # capture returns nil for a partial that renders nothing; store the empty buffer so
-      # key? still reports a hit and it is not re-rendered on every call.
-      rendered = capture { render_bound(bound, locals) } || ActiveSupport::SafeBuffer.new
+      # Return the buffer so capture preserves blank output as a safe string, including
+      # spaces that separate surrounding text. Empty output is a cacheable result too.
+      rendered = capture { render_bound(bound, locals); output_buffer }
       by_value[memo_key_snapshot(key)] = rendered if by_value.size < MEMO_LIMIT_PER_SHAPE
       rendered
     end
@@ -271,11 +281,15 @@ module ViewBind
       end
     end
 
-    # Strict-locals partials go through Template#render, which owns the argument checking
-    # and the StrictLocalsError message; everything else calls the compiled method.
+    # Template#render owns strict-locals validation. ERB can still reuse our buffer; other
+    # handlers return their output, which we append with normal Rails escaping.
     def render_bound(bound, locals)
       if bound.slow
-        bound.template.render(self, locals, output_buffer)
+        if bound.writes_to_buffer
+          bound.template.render(self, locals, output_buffer)
+        else
+          output_buffer << bound.template.render(self, locals)
+        end
       else
         bind_run(bound, locals, output_buffer)
       end

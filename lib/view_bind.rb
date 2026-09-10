@@ -20,9 +20,10 @@ require_relative "view_bind/railtie" if defined?(Rails::Railtie)
 module ViewBind
   # A resolved partial. `slow` means render it through ActionView::Template#render rather
   # than by calling its compiled method: strict-locals partials (Template#render owns the
-  # argument checking and its error message) and any Rails whose internals this gem cannot
-  # reach.
-  Bound = Struct.new(:template, :method_name, :slow, :unbound_method)
+  # argument checking and its error message), non-ERB handlers (which may return output
+  # instead of writing to the supplied buffer), and Rails whose internals we cannot reach.
+  # `writes_to_buffer` lets ERB keep sharing the caller's buffer on the slow path too.
+  Bound = Struct.new(:template, :method_name, :slow, :unbound_method, :writes_to_buffer)
 
   # resolver context => virtual path => [[locals keys, Bound], ...]
   #
@@ -158,14 +159,19 @@ module ViewBind
 
     def build(view, path, keys)
       template = resolve(view, path, keys)
-      return Bound.new(template, nil, true) if template.strict_locals? || !fast_path_available?
+      # Only the stock ERB handler is known to append to the caller's buffer. Other
+      # handlers, including raw and static HTML, can return a string or a new buffer.
+      writes_to_buffer = template.handler.instance_of?(ActionView::Template::Handlers::ERB)
+      if template.strict_locals? || !writes_to_buffer || !fast_path_available?
+        return Bound.new(template, nil, true, nil, writes_to_buffer)
+      end
 
       template.send(:compile!, view)
       method_name = template.send(:method_name)
       # bind_call on the UnboundMethod dispatches faster than public_send, and the method
       # lives on the container, so it can be looked up once here rather than per call.
       Bound.new(template, method_name, false,
-                view.compiled_method_container.instance_method(method_name))
+                view.compiled_method_container.instance_method(method_name), true)
     end
 
     def resolve(view, path, keys)

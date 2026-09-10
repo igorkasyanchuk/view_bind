@@ -7,7 +7,7 @@ what an agent working in the repo needs to not get things wrong.
 ## Commands
 
 ```bash
-bundle exec rake test      # 112 tests
+bundle exec rake test      # 128 tests
 bundle exec rake coverage  # the same suite under SimpleCov, gated at 100% line and branch
 bundle exec rake smoke     # boots the dummy app and checks its logging configuration
 bundle exec rake bench     # benchmark suite, see below
@@ -21,11 +21,12 @@ version can fail on another.
 
 ## Benchmarking
 
-Two records, different jobs. [`benchmarks/results/README.md`](results/README.md) is the
-current snapshot with raw JSON per run — quote from it. [`benchmarks/RESULTS.md`](RESULTS.md)
-is the append-only session log, kept so a later run can be compared against an earlier one;
-add a dated section there after a fresh measurement rather than rewriting old ones. Read
-whichever you are about to quote before quoting it.
+Store fresh benchmark runs, raw JSON, logs and reports under `tmp/benchmarks/` (gitignored),
+using a dated directory per session. Keep the local snapshot and append-only session log
+there too, so rerunning benchmarks does not add generated results to the diff.
+[`benchmarks/results/README.md`](benchmarks/results/README.md) and
+[`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) are published records; update them only when
+explicitly asked to publish results. Read the relevant report before quoting its numbers.
 
 ```bash
 R=5 bundle exec rake bench                  # SQLite (default)
